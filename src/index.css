@@ -1,0 +1,37 @@
+@import "tailwindcss";
+
+@theme {
+  --color-canvas: #f7f7f5;
+  --color-surface: #ffffff;
+  --color-line: #e5e5e0;
+  --color-ink: #1f2328;
+  --color-muted: #5b626c;
+  --color-accent: #2563eb;
+  --color-accent-strong: #1d4ed8;
+}
+
+:root {
+  color-scheme: light;
+}
+
+html, body, #root { height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 放在 base 层：组件可用 focus:ring / focus:outline-none 覆盖，其余控件保留统一焦点环。 */
+@layer base {
+  :focus-visible {
+    outline: 2px solid #2563eb;
+    outline-offset: 2px;
+  }
+}
+
+::selection {
+  background: rgb(37 99 235 / 0.16);
+}
