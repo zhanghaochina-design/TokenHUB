@@ -19,6 +19,7 @@ export interface ForwardOptions {
   signal: AbortSignal
   fetchFn?: FetchFn
   onDisableStreamUsage?: (providerId: string) => void
+  extraHeaders?: Record<string, string>
 }
 
 export type ForwardOutcome =
@@ -39,7 +40,8 @@ export async function forwardOpenAI(options: ForwardOptions): Promise<ForwardOut
       headers: {
         Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
-        Accept: withInject || wantsStream ? 'text/event-stream' : 'application/json'
+        Accept: withInject || wantsStream ? 'text/event-stream' : 'application/json',
+        ...(options.extraHeaders ?? {})
       },
       body: JSON.stringify(payload),
       signal,
@@ -79,4 +81,58 @@ export async function forwardOpenAI(options: ForwardOptions): Promise<ForwardOut
   }
 
   return { ok: true, response, injectedStreamUsage: inject }
+}
+
+export interface ForwardAnthropicOptions {
+  provider: ProviderConfig
+  upstreamModel: string
+  apiKey: string
+  body: Record<string, unknown>
+  signal: AbortSignal
+  anthropicVersion: string
+  anthropicBeta?: string
+  extraHeaders?: Record<string, string>
+  fetchFn?: FetchFn
+}
+
+/**
+ * Anthropic 形状上游：请求体原样透传（只替换 model），响应/SSE 由调用方按客户端协议处理。
+ * 鉴权按 Anthropic 约定走 x-api-key；CommandCode 等网关只在 /messages 上提供 Claude 模型。
+ */
+export async function forwardAnthropic(options: ForwardAnthropicOptions): Promise<ForwardOutcome> {
+  const { provider, upstreamModel, apiKey, body, signal } = options
+  const fetchFn = options.fetchFn ?? undiciFetch
+  const wantsStream = body.stream === true
+  const payload: Record<string, unknown> = { ...body, model: upstreamModel }
+  const headers: Record<string, string> = {
+    'x-api-key': apiKey,
+    'anthropic-version': options.anthropicVersion,
+    'content-type': 'application/json',
+    accept: wantsStream ? 'text/event-stream' : 'application/json',
+    ...(options.anthropicBeta ? { 'anthropic-beta': options.anthropicBeta } : {}),
+    ...(options.extraHeaders ?? {})
+  }
+
+  let response: Response
+  try {
+    response = await fetchFn(`${provider.baseUrl.replace(/\/+$/, '')}/messages`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+      signal,
+      dispatcher: agent
+    } as never)
+  } catch (error) {
+    return {
+      ok: false,
+      failure: { kind: 'transient', status: null, message: error instanceof Error ? error.message : 'network error', retryAfterMs: null }
+    }
+  }
+
+  if (!response.ok) {
+    const text = (await response.text().catch(() => '')).slice(0, 8_000)
+    return { ok: false, failure: classifyUpstreamResponse(response.status, text, response.headers) }
+  }
+
+  return { ok: true, response, injectedStreamUsage: false }
 }

@@ -1,4 +1,4 @@
-import type { AppState, HistoryRecord, Preset, ProviderConfig, QuotaAdapterId, QuotaSnapshot, Settings } from './types'
+import type { AppState, HistoryRecord, ModelAlias, Preset, ProtocolScanResult, ProviderConfig, QuotaAdapterId, QuotaSnapshot, Settings } from './types'
 
 export interface ProviderInput {
   preset: Preset
@@ -36,7 +36,10 @@ export interface TokenHubApi {
   setProviderEnabled(id: string, enabled: boolean): Promise<void>
   testProvider(input: ProviderInput, id?: string): Promise<TestResult>
   refreshModels(id?: string): Promise<void>
+  scanProviderProtocols(id: string): Promise<ProtocolScanResult>
   resetProvider(id: string): Promise<void>
+  saveModelAlias(alias: ModelAlias, previousId?: string): Promise<void>
+  deleteModelAlias(id: string): Promise<void>
   updateSettings(patch: Partial<Settings>): Promise<void>
   setLocalKey(key: string | null): Promise<void>
   setPaused(paused: boolean): Promise<void>

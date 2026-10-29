@@ -11,5 +11,5 @@
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx", "core/types.ts", "core/ipc-types.ts"]
+  "include": ["src/**/*.ts", "src/**/*.tsx", "core/types.ts", "core/ipc-types.ts", "core/providers/aliases.ts"]
 }

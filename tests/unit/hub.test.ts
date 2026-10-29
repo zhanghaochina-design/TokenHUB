@@ -121,6 +121,83 @@ describe('Hub', () => {
     await hub.shutdown()
   })
 
+  it('creates, persists and deletes canonical model aliases', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'tokenhub-hub-'))
+    const fetchFn: FakeFetch = async (url) => {
+      const href = String(url)
+      if (href.includes('a.example') && href.endsWith('/models')) {
+        return new Response(JSON.stringify({ data: [{ id: 'deepseek-v4.1-flash' }] }), { status: 200 })
+      }
+      if (href.includes('b.example') && href.endsWith('/models')) {
+        return new Response(JSON.stringify({ data: [{ id: 'deepseek/deepseek-v4.1-flash' }] }), { status: 200 })
+      }
+      return new Response('{}', { status: 200 })
+    }
+    const { hub } = await boot({ dir, fetchFn })
+    await hub.addProvider({ preset: 'custom', name: 'A', baseUrl: 'https://a.example/v1', apiKey: 'ka' })
+    await hub.addProvider({ preset: 'custom', name: 'B', baseUrl: 'https://b.example/v1', apiKey: 'kb' })
+    const [a, b] = hub.getState().providers.map((provider) => provider.id)
+    const alias = {
+      id: 'deepseek4.1flash',
+      targets: [
+        { providerId: a, upstreamModel: 'deepseek-v4.1-flash' },
+        { providerId: b, upstreamModel: 'deepseek/deepseek-v4.1-flash' }
+      ]
+    }
+    await hub.saveModelAlias(alias)
+    expect(hub.getState().aliases).toEqual([alias])
+    expect(hub.getState().catalog.map((model) => model.id)).toEqual(['deepseek4.1flash'])
+    const resolution = resolveCandidates({
+      requestedModel: 'deepseek4.1flash',
+      providers: hub.getState().providers,
+      catalog: hub.getState().catalog,
+      runtime: hub.runtime
+    })
+    expect(resolution.candidates.map((candidate) => candidate.upstreamModel)).toEqual([
+      'deepseek-v4.1-flash',
+      'deepseek/deepseek-v4.1-flash'
+    ])
+    await hub.shutdown()
+
+    const { hub: restarted } = await boot({ dir, fetchFn })
+    expect(restarted.getState().aliases).toEqual([alias])
+    expect(restarted.getState().catalog.map((model) => model.id)).toEqual(['deepseek4.1flash'])
+    await restarted.deleteModelAlias('deepseek4.1flash')
+    expect(restarted.getState().aliases).toEqual([])
+    expect(restarted.getState().catalog.map((model) => model.id).sort()).toEqual([
+      'deepseek-v4.1-flash',
+      'deepseek/deepseek-v4.1-flash'
+    ])
+    await restarted.shutdown()
+  })
+
+  it('validates aliases and removes provider targets when a provider is deleted', async () => {
+    const { hub } = await boot()
+    await hub.addProvider({ preset: 'custom', name: 'A', baseUrl: 'https://a.example/v1', apiKey: 'ka' })
+    await hub.addProvider({ preset: 'custom', name: 'B', baseUrl: 'https://b.example/v1', apiKey: 'kb' })
+    const [a, b] = hub.getState().providers.map((provider) => provider.id)
+    await expect(hub.saveModelAlias({ id: 'x', targets: [] })).rejects.toThrow('at least one')
+    await expect(
+      hub.saveModelAlias({ id: 'x', targets: [{ providerId: 'missing', upstreamModel: 'm1' }] })
+    ).rejects.toThrow('unknown provider')
+    await hub.saveModelAlias({
+      id: 'x',
+      targets: [
+        { providerId: a, upstreamModel: 'm1' },
+        { providerId: b, upstreamModel: 'm2' }
+      ]
+    })
+    await expect(
+      hub.saveModelAlias({ id: 'x', targets: [{ providerId: a, upstreamModel: 'm1' }] })
+    ).rejects.toThrow('already exists')
+    await hub.deleteProvider(b)
+    expect(hub.getState().aliases[0].targets).toEqual([{ providerId: a, upstreamModel: 'm1' }])
+    await hub.deleteProvider(a)
+    expect(hub.getState().aliases[0].targets).toEqual([])
+    expect(hub.getState().catalog.some((model) => model.id === 'x')).toBe(false)
+    await hub.shutdown()
+  })
+
   it('marks providers exhausted from quota errors', async () => {
     const { hub } = await boot()
     await hub.addProvider({ preset: 'commandcode', name: 'Goat', baseUrl: 'https://api.commandcode.ai/provider/v1', apiKey: 'k' })

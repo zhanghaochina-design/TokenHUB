@@ -48,6 +48,81 @@ describe('resolveCandidates', () => {
     const result = resolveCandidates({ requestedModel: 'nope', providers, catalog: buildCatalog(providers), runtime: runtime() })
     expect(result.modelKnown).toBe(false)
   })
+
+  it('routes a canonical id to each provider upstream id in priority order', () => {
+    const a = provider('a', ['opencode-deepseek'])
+    const b = provider('b', ['commandcode-deepseek'])
+    const providers = [b, a]
+    const aliases = [
+      {
+        id: 'deepseek4.1flash',
+        targets: [
+          { providerId: 'a', upstreamModel: 'opencode-deepseek' },
+          { providerId: 'b', upstreamModel: 'commandcode-deepseek' }
+        ]
+      }
+    ]
+    const result = resolveCandidates({
+      requestedModel: 'deepseek4.1flash',
+      providers,
+      catalog: buildCatalog(providers, aliases),
+      runtime: runtime()
+    })
+    expect(result.modelKnown).toBe(true)
+    expect(result.candidates).toEqual([
+      { provider: b, upstreamModel: 'commandcode-deepseek' },
+      { provider: a, upstreamModel: 'opencode-deepseek' }
+    ])
+  })
+
+  it('supports pinned canonical and pinned upstream ids', () => {
+    const a = provider('a', ['opencode-deepseek'])
+    const b = provider('b', ['commandcode-deepseek'])
+    const providers = [a, b]
+    const aliases = [
+      {
+        id: 'deepseek4.1flash',
+        targets: [
+          { providerId: 'a', upstreamModel: 'opencode-deepseek' },
+          { providerId: 'b', upstreamModel: 'commandcode-deepseek' }
+        ]
+      }
+    ]
+    const catalog = buildCatalog(providers, aliases)
+    const rt = runtime()
+    const canonicalPin = resolveCandidates({ requestedModel: 'a/deepseek4.1flash', providers, catalog, runtime: rt })
+    expect(canonicalPin.candidates).toEqual([{ provider: a, upstreamModel: 'opencode-deepseek' }])
+    const upstreamPin = resolveCandidates({ requestedModel: 'b/commandcode-deepseek', providers, catalog, runtime: rt })
+    expect(upstreamPin.candidates).toEqual([{ provider: b, upstreamModel: 'commandcode-deepseek' }])
+    const unknownPin = resolveCandidates({ requestedModel: 'a/not-a-model', providers, catalog, runtime: rt })
+    expect(unknownPin.modelKnown).toBe(false)
+    expect(unknownPin.candidates).toEqual([])
+  })
+
+  it('prefers a canonical id containing slashes over provider pin parsing', () => {
+    const p1 = provider('p1', ['raw-model'])
+    const aliases = [{ id: 'p1/model-x', targets: [{ providerId: 'p1', upstreamModel: 'raw-model' }] }]
+    const result = resolveCandidates({
+      requestedModel: 'p1/model-x',
+      providers: [p1],
+      catalog: buildCatalog([p1], aliases),
+      runtime: runtime()
+    })
+    expect(result.modelKnown).toBe(true)
+    expect(result.candidates).toEqual([{ provider: p1, upstreamModel: 'raw-model' }])
+  })
+
+  it('reports a zero-target alias as unknown because it has no catalog entry', () => {
+    const a = provider('a', ['x'])
+    const aliases = [{ id: 'orphan', targets: [] }]
+    const result = resolveCandidates({
+      requestedModel: 'orphan',
+      providers: [a],
+      catalog: buildCatalog([a], aliases),
+      runtime: runtime()
+    })
+    expect(result.modelKnown).toBe(false)
+  })
 })
 
 describe('RuntimeStore', () => {

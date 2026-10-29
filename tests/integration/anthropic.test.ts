@@ -63,6 +63,7 @@ describe('anthropic non-stream', () => {
     const config: AppConfig = {
       version: 1,
       providers,
+      modelAliases: [],
       settings: { port: 0, localKeyEnabled: Boolean(opts.localKey), autoStart: false, startMinimized: false, closeToTray: true, retentionDays: 30, quotaRefreshSec: 60 }
     }
     const server = await startServer({
@@ -270,6 +271,7 @@ describe('anthropic protocol detection by anthropic-version header', () => {
     const config: AppConfig = {
       version: 1,
       providers: [p1],
+      modelAliases: [],
       settings: { port: 0, localKeyEnabled: Boolean(opts.localKey), autoStart: false, startMinimized: false, closeToTray: true, retentionDays: 30, quotaRefreshSec: 60 }
     }
     const server = await startServer({

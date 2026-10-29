@@ -47,7 +47,7 @@ export function providerStatus(
   return { label: AVAILABILITY_LABELS[runtime.availability], tone: AVAILABILITY_TONES[runtime.availability] }
 }
 
-function formatDateTime(iso: string): string {
+export function formatDateTime(iso: string): string {
   const date = new Date(iso)
   if (Number.isNaN(date.getTime())) return iso
   return date.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })

@@ -108,6 +108,7 @@ describe('anthropic streaming transcode', () => {
     const config: AppConfig = {
       version: 1,
       providers,
+      modelAliases: [],
       settings: { port: 0, localKeyEnabled: false, autoStart: false, startMinimized: false, closeToTray: true, retentionDays: 30, quotaRefreshSec: 60 }
     }
     const server = await startServer({

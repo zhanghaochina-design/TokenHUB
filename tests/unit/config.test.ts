@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { mkdir, mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { defaultConfig, loadConfig, saveConfig } from '../../core/store/config'
+import { defaultConfig, loadConfig, normalizeConfig, saveConfig } from '../../core/store/config'
 import { readText } from '../../core/store/fsUtil'
 
 async function tempDir(): Promise<string> {
@@ -16,6 +16,51 @@ describe('config store', () => {
     expect(cfg.settings.port).toBe(8787)
     expect(cfg.settings.closeToTray).toBe(true)
     expect(cfg.providers).toEqual([])
+    expect(cfg.modelAliases).toEqual([])
+  })
+
+  it('normalizes aliases, trims targets and keeps zero-target aliases', () => {
+    const cfg = normalizeConfig({
+      modelAliases: [
+        {
+          id: ' deepseek4.1flash ',
+          targets: [
+            { providerId: ' p1 ', upstreamModel: ' deepseek-v4.1-flash ' },
+            { providerId: 'p1', upstreamModel: 'duplicate-provider' },
+            { providerId: 'p2', upstreamModel: '   ' }
+          ]
+        },
+        { id: 'deepseek4.1flash', targets: [{ providerId: 'p2', upstreamModel: 'x' }] },
+        { id: 'empty', targets: [] }
+      ]
+    })
+    expect(cfg.modelAliases).toEqual([
+      { id: 'deepseek4.1flash', targets: [{ providerId: 'p1', upstreamModel: 'deepseek-v4.1-flash' }] },
+      { id: 'empty', targets: [] }
+    ])
+  })
+
+  it('normalizes scanned protocol support entries', () => {
+    const cfg = normalizeConfig({
+      providers: [
+        {
+          id: 'p1',
+          name: 'P1',
+          preset: 'opencode-go',
+          baseUrl: 'https://p1.example/v1',
+          models: { cached: ['m'], manual: [], lastSyncedAt: null },
+          protocolSupport: {
+            m: { anthropic: true, openai: false, checkedAt: '2026-10-29T00:00:00.000Z' },
+            bad: { anthropic: 'yes', openai: 1 },
+            nope: null
+          }
+        }
+      ]
+    })
+    expect(cfg.providers[0].protocolSupport).toEqual({
+      m: { anthropic: true, openai: false, checkedAt: '2026-10-29T00:00:00.000Z' },
+      bad: { anthropic: null, openai: null, checkedAt: '' }
+    })
   })
 
   it('round-trips provider order', async () => {

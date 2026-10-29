@@ -18,6 +18,7 @@ function makeDeps(providers: ProviderConfig[], history: HistorySink, opts: { loc
   const config: AppConfig = {
     version: 1,
     providers,
+    modelAliases: [],
     settings: { port: 0, localKeyEnabled: Boolean(opts.localKey), autoStart: false, startMinimized: false, closeToTray: true, retentionDays: 30, quotaRefreshSec: 60 }
   }
   return {

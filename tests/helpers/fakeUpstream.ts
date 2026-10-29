@@ -1,4 +1,4 @@
-import { createServer } from 'node:http'
+import { createServer, type IncomingHttpHeaders } from 'node:http'
 
 export interface FakeResponse {
   status: number
@@ -12,15 +12,15 @@ export interface FakeResponse {
 
 export async function startFakeUpstream(
   handler: (path: string, body: string) => FakeResponse | Promise<FakeResponse>
-): Promise<{ url: string; requests: Array<{ path: string; body: string }>; close(): Promise<void> }> {
-  const requests: Array<{ path: string; body: string }> = []
+): Promise<{ url: string; requests: Array<{ path: string; body: string; headers: IncomingHttpHeaders }>; close(): Promise<void> }> {
+  const requests: Array<{ path: string; body: string; headers: IncomingHttpHeaders }> = []
   const server = createServer(async (req, res) => {
     // 客户端中断后写入已销毁的 socket 不应产生未处理的 error
     res.on('error', () => {})
     const chunks: Buffer[] = []
     for await (const chunk of req) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
     const body = Buffer.concat(chunks).toString('utf8')
-    requests.push({ path: req.url ?? '', body })
+    requests.push({ path: req.url ?? '', body, headers: req.headers })
     const out = await handler(req.url ?? '', body)
     const headers = { 'content-type': 'application/json', ...(out.headers ?? {}) }
     if (out.truncate) {

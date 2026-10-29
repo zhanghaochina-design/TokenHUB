@@ -33,7 +33,7 @@
 - 抓取网页 Cookie 获取 CommandCode 额度。
 - 入站 OpenAI Responses API（`/v1/responses`）。
 - 局域网 / 公网访问、多用户、云端同步。
-- 跨供应商模型 ID 自动归一（如 `glm-5.1` 与 `zai-org/glm-5.1` 合并）与费用估算图表。
+- 跨供应商模型 ID 的全自动归一（仅提供手动确认的统一模型映射与建议，不自动模糊合并）与费用估算图表。
 - 自动更新。
 
 ## 3. 术语
@@ -166,9 +166,11 @@ interface ProviderConfig {
 - 触发发现：新增/编辑供应商保存后、点击「测试连接」、手动刷新、启动时缓存超过 24 小时、路由遇到 404。
 - 发现方式：`GET {baseUrl}/models`，取 `data[].id`，与 `models.manual` 合并去重后缓存。
 - 发现失败：保留旧缓存；界面提示；允许手动填写模型 ID 列表。
-- 合并视图：按模型 ID 精确合并，生成 `{ id, providers: providerId[] }`。
-- 对外 `/v1/models` 只列合并后的模型 ID，不列供应商前缀，避免 Agent 侧选择混乱。
-- 请求中允许 `providerId/modelId` 的写法强制指定供应商（不在模型列表中出现，供调试和排障）。
+- 合并视图：按模型 ID 精确合并；`modelAliases` 可把本地统一 ID 映射到不同供应商的 upstream 模型 ID。
+- 统一 ID 的候选 = 显式映射的 target + 其他供应商里原始 ID 恰好等于统一 ID 的模型；显式映射优先。
+- 被别名覆盖的 `(供应商, 原始 ID)` 不再单独出现在 `/v1/models`；请求统一 ID 时按供应商优先级路由，每个候选使用自己的 upstream ID。
+- 对外 `/v1/models` 只列统一后的模型 ID，不列供应商前缀；`providerId/统一ID` 与 `providerId/原始ID` 可强制访问。
+- 自动建议仅按名称签名（最后路径段、忽略大小写/标点）生成候选，必须用户确认后才写入；同供应商同签名多候选时不自动建议。
 
 ### 6.4 路由引擎
 
@@ -176,7 +178,8 @@ interface ProviderConfig {
 
 1. 解析请求体，取出 `model`。
 2. 解析模型：
-   - `providerId/modelId` → 只路由到该供应商，校验其支持该模型；
+   - 先按请求原文匹配统一模型 ID（统一 ID 可包含 `/`）；
+   - 未命中则 `providerId/modelId` → 只路由到该供应商，解析统一 ID 映射或原始模型；
    - 否则按合并模型查支持它的供应商集合。
 3. 生成候选：过滤 `enabled=false`、状态为 `exhausted` 且未到恢复时间、`auth_error` 的供应商；按全局优先级（数组顺序）排序。
 4. 逐个尝试，直到成功或候选耗尽。

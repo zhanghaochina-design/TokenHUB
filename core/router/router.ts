@@ -20,20 +20,34 @@ export function resolveCandidates(input: {
   runtime: RuntimeStore
 }): Resolution {
   const { requestedModel, providers, catalog, runtime } = input
-  const parsed = parseRequestedModel(requestedModel, providers)
+  // canonical 模型 ID 优先于 provider/model 拆解：统一 ID 本身可以包含斜杠。
+  const direct = catalog.find((model) => model.id === requestedModel)
+  const parsed = direct ? { providerId: null, model: requestedModel } : parseRequestedModel(requestedModel, providers)
   if (parsed.providerId) {
-    const provider = providers.find((p) => p.id === parsed.providerId)!
-    const known = provider.enabled && providerSupports(provider, parsed.model)
-    const candidates = known && runtime.isRoutable(provider.id) ? [{ provider, upstreamModel: parsed.model }] : []
+    const provider = providers.find((p) => p.id === parsed.providerId)
+    if (!provider) return { model: parsed.model, modelKnown: false, candidates: [] }
+    const canonicalTarget = catalog
+      .find((model) => model.id === parsed.model)
+      ?.targets.find((target) => target.providerId === provider.id)
+    const aliasTarget = catalog.find((model) =>
+      model.targets.some((target) => target.providerId === provider.id && target.upstreamModel === parsed.model)
+    )
+    const upstreamModel = canonicalTarget?.upstreamModel ?? (aliasTarget || providerSupports(provider, parsed.model) ? parsed.model : null)
+    const known = Boolean(upstreamModel) && provider.enabled
+    const candidates = known && runtime.isRoutable(provider.id) ? [{ provider, upstreamModel: upstreamModel! }] : []
     return { model: parsed.model, modelKnown: known, candidates }
   }
   const entry = catalog.find((m) => m.id === parsed.model)
   if (!entry) return { model: parsed.model, modelKnown: false, candidates: [] }
+  const providerOrder = new Map(providers.map((provider, index) => [provider.id, index]))
+  const targets = [...entry.targets].sort(
+    (a, b) => (providerOrder.get(a.providerId) ?? Number.MAX_SAFE_INTEGER) - (providerOrder.get(b.providerId) ?? Number.MAX_SAFE_INTEGER)
+  )
   const candidates: Candidate[] = []
-  for (const id of entry.providers) {
-    const provider = providers.find((p) => p.id === id)
-    if (!provider || !provider.enabled || !providerSupports(provider, parsed.model) || !runtime.isRoutable(id)) continue
-    candidates.push({ provider, upstreamModel: parsed.model })
+  for (const target of targets) {
+    const provider = providers.find((p) => p.id === target.providerId)
+    if (!provider || !provider.enabled || !runtime.isRoutable(provider.id)) continue
+    candidates.push({ provider, upstreamModel: target.upstreamModel })
   }
   return { model: parsed.model, modelKnown: true, candidates }
 }

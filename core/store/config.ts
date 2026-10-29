@@ -1,12 +1,13 @@
 import { rename } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { AppConfig, ProviderConfig } from '../types'
+import type { AppConfig, ModelAlias, ModelProtocolSupport, ProviderConfig } from '../types'
 import { readText, writeFileAtomic } from './fsUtil'
 
 export function defaultConfig(): AppConfig {
   return {
     version: 1,
     providers: [],
+    modelAliases: [],
     settings: {
       port: 8787,
       localKeyEnabled: false,
@@ -43,7 +44,44 @@ export function normalizeConfig(raw: unknown): AppConfig {
     retentionDays: integerValue(merged.retentionDays, base.settings.retentionDays, 0, 3650)
   }
   const providers = Array.isArray(input.providers) ? input.providers.map(normalizeProvider) : []
-  return { version: 1, providers, settings }
+  return { version: 1, providers, modelAliases: normalizeAliases(input.modelAliases), settings }
+}
+
+function normalizeAliases(raw: unknown): ModelAlias[] {
+  if (!Array.isArray(raw)) return []
+  const aliases: ModelAlias[] = []
+  const seen = new Set<string>()
+  for (const item of raw) {
+    const value = (item ?? {}) as Partial<ModelAlias>
+    const id = String(value.id ?? '').trim()
+    if (!id || seen.has(id)) continue
+    const byProvider = new Map<string, string>()
+    for (const target of Array.isArray(value.targets) ? value.targets : []) {
+      const providerId = String(target?.providerId ?? '').trim()
+      const upstreamModel = String(target?.upstreamModel ?? '').trim()
+      if (!providerId || !upstreamModel || byProvider.has(providerId)) continue
+      byProvider.set(providerId, upstreamModel)
+    }
+    seen.add(id)
+    // 零 target 的别名保留下来供 UI 提示/修复，不静默删除用户的 canonical 名称。
+    aliases.push({ id, targets: [...byProvider].map(([providerId, upstreamModel]) => ({ providerId, upstreamModel })) })
+  }
+  return aliases
+}
+
+function normalizeProtocolSupport(raw: unknown): Record<string, ModelProtocolSupport> | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined
+  const out: Record<string, ModelProtocolSupport> = {}
+  for (const [model, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (!model || !value || typeof value !== 'object' || Array.isArray(value)) continue
+    const entry = value as Record<string, unknown>
+    out[model] = {
+      anthropic: entry.anthropic === true ? true : entry.anthropic === false ? false : null,
+      openai: entry.openai === true ? true : entry.openai === false ? false : null,
+      checkedAt: typeof entry.checkedAt === 'string' ? entry.checkedAt : ''
+    }
+  }
+  return Object.keys(out).length > 0 ? out : undefined
 }
 
 function normalizeProvider(raw: unknown): ProviderConfig {
@@ -60,6 +98,7 @@ function normalizeProvider(raw: unknown): ProviderConfig {
       manual: Array.isArray(p.models?.manual) ? p.models.manual.map(String) : [],
       lastSyncedAt: p.models?.lastSyncedAt ?? null
     },
+    protocolSupport: normalizeProtocolSupport(p.protocolSupport),
     quota: {
       lowBalanceThreshold: finiteValue(p.quota?.lowBalanceThreshold, 0.5, 0),
       // 冷却时长会直接参与 new Date(now + ms)，非有限值会让冷却与 UI 倒计时崩掉。

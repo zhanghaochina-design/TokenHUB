@@ -4,6 +4,8 @@ import type {
   AppState,
   HistoryRecord,
   HistorySink,
+  ModelAlias,
+  ProtocolScanResult,
   ProviderConfig,
   QuotaSnapshot,
   Settings,
@@ -18,6 +20,7 @@ import { RuntimeStore } from './router/runtime'
 import { buildCatalog } from './providers/catalog'
 import { createProviderFromPreset } from './providers/presets'
 import { discoverModels } from './providers/discover'
+import { scanProviderProtocols } from './providers/scan'
 import { startServer } from './server/start'
 import { QuotaScheduler } from './quota/scheduler'
 import { opencodeGoAdapter } from './quota/opencodeGo'
@@ -98,6 +101,7 @@ export class Hub {
   private timers: ReturnType<typeof setInterval>[] = []
   private listeners: Array<(state: AppState) => void> = []
   private quotaCache = new Map<string, QuotaSnapshot>()
+  private scanState: AppState['scan'] = null
   private cacheWrite: Promise<void> = Promise.resolve()
   private configWrite: Promise<void> = Promise.resolve()
   private todayStats: TodayStats = emptyStats()
@@ -186,13 +190,23 @@ export class Hub {
       providers: this.config.providers.map((provider) => ({
         ...provider,
         models: { ...provider.models, cached: [...provider.models.cached], manual: [...provider.models.manual] },
+        protocolSupport: provider.protocolSupport
+          ? Object.fromEntries(
+              Object.entries(provider.protocolSupport).map(([model, support]) => [model, { ...support }])
+            )
+          : undefined,
         quota: { ...provider.quota },
         hasKey: this.secrets?.hasProviderKey(provider.id) ?? false
       })),
       runtime: this.config.providers.map((provider) => this.runtime.get(provider.id)),
       catalog: this.catalog,
+      aliases: this.config.modelAliases.map((alias) => ({
+        id: alias.id,
+        targets: alias.targets.map((target) => ({ ...target }))
+      })),
       server: { running: Boolean(this.server), port: this.server?.port ?? 0, paused: this.paused, error: this.serverError },
       stats: { ...this.todayStats },
+      scan: this.scanState ? { ...this.scanState } : null,
       recoveryWarning: this.recoveryWarning
     }
   }
@@ -264,6 +278,10 @@ export class Hub {
   async deleteProvider(id: string): Promise<void> {
     this.requireProvider(id)
     this.config.providers = this.config.providers.filter((provider) => provider.id !== id)
+    this.config.modelAliases = this.config.modelAliases.map((alias) => ({
+      ...alias,
+      targets: alias.targets.filter((target) => target.providerId !== id)
+    }))
     await this.secrets.removeProviderKey(id)
     this.runtime.remove(id)
     this.quotaCache.delete(id)
@@ -288,6 +306,42 @@ export class Hub {
   async setProviderEnabled(id: string, enabled: boolean): Promise<void> {
     const provider = this.requireProvider(id)
     provider.enabled = enabled
+    await this.persistConfig()
+    this.rebuildCatalog()
+    this.emit()
+  }
+
+  async saveModelAlias(alias: ModelAlias, previousId?: string): Promise<void> {
+    const id = alias.id.trim()
+    if (!id) throw new Error('model alias id is required')
+    const previous = previousId?.trim() || null
+    if (this.config.modelAliases.some((candidate) => candidate.id === id && candidate.id !== previous)) {
+      throw new Error(`model alias already exists: ${id}`)
+    }
+    const providerIds = new Set(this.config.providers.map((provider) => provider.id))
+    const targets = new Map<string, string>()
+    for (const target of alias.targets) {
+      const providerId = target.providerId.trim()
+      const upstreamModel = target.upstreamModel.trim()
+      if (!providerId || !upstreamModel) continue
+      if (!providerIds.has(providerId)) throw new Error(`unknown provider for model alias: ${providerId}`)
+      targets.set(providerId, upstreamModel)
+    }
+    if (targets.size === 0) throw new Error('model alias needs at least one provider target')
+    const next = this.config.modelAliases.filter((candidate) => candidate.id !== previous && candidate.id !== id)
+    next.push({
+      id,
+      targets: [...targets].map(([providerId, upstreamModel]) => ({ providerId, upstreamModel }))
+    })
+    this.config.modelAliases = next.sort((a, b) => a.id.localeCompare(b.id))
+    await this.persistConfig()
+    this.rebuildCatalog()
+    this.emit()
+  }
+
+  async deleteModelAlias(id: string): Promise<void> {
+    if (!this.config.modelAliases.some((alias) => alias.id === id)) throw new Error(`unknown model alias: ${id}`)
+    this.config.modelAliases = this.config.modelAliases.filter((alias) => alias.id !== id)
     await this.persistConfig()
     this.rebuildCatalog()
     this.emit()
@@ -340,6 +394,48 @@ export class Hub {
     await this.persistConfig()
     this.rebuildCatalog()
     this.emit()
+  }
+
+  async scanProviderProtocols(id: string): Promise<ProtocolScanResult> {
+    const provider = this.requireProvider(id)
+    if (this.scanState) throw new Error('a protocol scan is already running')
+    const apiKey = this.secrets.getProviderKey(id)
+    if (!apiKey) throw new Error('api key is required')
+    const models = normalizeModels([...provider.models.cached, ...provider.models.manual])
+    this.scanState = { providerId: provider.id, providerName: provider.name, done: 0, total: models.length }
+    this.emit()
+    let lastEmit = 0
+    try {
+      const outcome = await scanProviderProtocols({
+        provider,
+        apiKey,
+        models,
+        fetchFn: this.fetchFn,
+        now: this.now,
+        onProgress: (done, total) => {
+          if (!this.scanState) return
+          this.scanState.done = done
+          this.scanState.total = total
+          const stamp = Date.now()
+          if (done === total || stamp - lastEmit >= 200) {
+            lastEmit = stamp
+            this.emit()
+          }
+        }
+      })
+      if (outcome.rows.length > 0) {
+        const support = { ...(provider.protocolSupport ?? {}) }
+        for (const row of outcome.rows) {
+          support[row.model] = { anthropic: row.anthropic, openai: row.openai, checkedAt: row.checkedAt }
+        }
+        provider.protocolSupport = support
+        await this.persistConfig()
+      }
+      return { providerId: provider.id, providerName: provider.name, rows: outcome.rows, error: outcome.error }
+    } finally {
+      this.scanState = null
+      this.emit()
+    }
   }
 
   async refreshQuotas(force = false): Promise<void> {
@@ -490,7 +586,7 @@ export class Hub {
   }
 
   private rebuildCatalog(): void {
-    this.catalog = buildCatalog(this.config.providers)
+    this.catalog = buildCatalog(this.config.providers, this.config.modelAliases)
   }
 
   private requireProvider(id: string): ProviderConfig {

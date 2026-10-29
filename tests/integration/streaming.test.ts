@@ -40,7 +40,7 @@ describe('streaming proxy', () => {
     closeUpstream = upstream.close
     const p1 = provider('p1', `${upstream.url}/p1/v1`)
     const config: AppConfig = {
-      version: 1, providers: [p1],
+      version: 1, providers: [p1], modelAliases: [],
       settings: { port: 0, localKeyEnabled: false, autoStart: false, startMinimized: false, closeToTray: true, retentionDays: 30, quotaRefreshSec: 60 }
     }
     const records: HistoryRecord[] = []
@@ -76,7 +76,7 @@ describe('streaming proxy', () => {
     const p1 = provider('p1', `${upstream.url}/p1/v1`)
     const p2 = provider('p2', `${upstream.url}/p2/v1`)
     const config: AppConfig = {
-      version: 1, providers: [p1, p2],
+      version: 1, providers: [p1, p2], modelAliases: [],
       settings: { port: 0, localKeyEnabled: false, autoStart: false, startMinimized: false, closeToTray: true, retentionDays: 30, quotaRefreshSec: 60 }
     }
     const records: HistoryRecord[] = []
@@ -105,7 +105,7 @@ describe('streaming proxy', () => {
     const p1 = provider('p1', `${upstream.url}/p1/v1`)
     const p2 = provider('p2', `${upstream.url}/p2/v1`)
     const config: AppConfig = {
-      version: 1, providers: [p1, p2],
+      version: 1, providers: [p1, p2], modelAliases: [],
       settings: { port: 0, localKeyEnabled: false, autoStart: false, startMinimized: false, closeToTray: true, retentionDays: 30, quotaRefreshSec: 60 }
     }
     const runtime = new RuntimeStore()
@@ -144,7 +144,7 @@ describe('streaming proxy', () => {
     const p1 = provider('p1', `${upstream.url}/p1/v1`)
     const p2 = provider('p2', `${upstream.url}/p2/v1`)
     const config: AppConfig = {
-      version: 1, providers: [p1, p2],
+      version: 1, providers: [p1, p2], modelAliases: [],
       settings: { port: 0, localKeyEnabled: false, autoStart: false, startMinimized: false, closeToTray: true, retentionDays: 30, quotaRefreshSec: 60 }
     }
     const runtime = new RuntimeStore()
@@ -191,7 +191,7 @@ describe('streaming proxy', () => {
   it('returns 502 and records a failure when the upstream 200 has no body', async () => {
     const p1 = provider('p1', 'http://127.0.0.1:1/p1/v1')
     const config: AppConfig = {
-      version: 1, providers: [p1],
+      version: 1, providers: [p1], modelAliases: [],
       settings: { port: 0, localKeyEnabled: false, autoStart: false, startMinimized: false, closeToTray: true, retentionDays: 30, quotaRefreshSec: 60 }
     }
     const records: HistoryRecord[] = []
