@@ -159,7 +159,8 @@ export default function App() {
           </div>
         )}
 
-        <main className="min-w-0 flex-1 overflow-y-auto">
+        {/* relative 让页面内绝对定位元素（如 sr-only）受滚动容器裁剪，否则它们会撑高文档、出现第二条滚动条。 */}
+        <main className="relative min-w-0 flex-1 overflow-y-auto">
           {page === 'overview' ? (
             <OverviewPage
               state={state}
