@@ -63,7 +63,8 @@ async function probe(
 
 /**
  * 对每个模型分别探测 Anthropic `/messages` 与 OpenAI `/chat/completions`。
- * 扫描是诊断请求：不写历史、不计供应商故障；401/402 或两端同时鉴权失败时提前停止。
+ * 扫描是诊断请求：不写历史、不计供应商故障；只有同一模型两端都 401（Key 无效）才提前停止，
+ * 403/402 只记录当前模型，避免地区限制或单模型额度问题中断整轮扫描。
  */
 export async function scanProviderProtocols(options: ScanOptions): Promise<ScanOutcome> {
   const models = [...new Set(options.models.map((model) => model.trim()).filter(Boolean))]
@@ -100,11 +101,9 @@ export async function scanProviderProtocols(options: ScanOptions): Promise<ScanO
       const anthropic = await probe(`${base}/messages`, anthropicHeaders, body, fetchFn)
       const openai = await probe(`${base}/chat/completions`, openaiHeaders, body, fetchFn)
 
-      const authFailed = (state: EndpointState): boolean => state.status === 401 || state.status === 403
-      if (anthropic.status === 402 || openai.status === 402) {
-        stopReason = '余额/额度不足，扫描已停止'
-      } else if (authFailed(anthropic) && authFailed(openai)) {
-        stopReason = '认证失败，扫描已停止'
+      const keyRejected = (state: EndpointState): boolean => state.status === 401
+      if (keyRejected(anthropic) && keyRejected(openai)) {
+        stopReason = `认证失败（${model}），扫描已停止`
       }
 
       const notes = [anthropic.note ? `messages: ${anthropic.note}` : '', openai.note ? `chat: ${openai.note}` : '']

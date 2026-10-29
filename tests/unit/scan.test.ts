@@ -47,7 +47,7 @@ describe('scanProviderProtocols', () => {
     expect(progress).toEqual([[1, 3], [2, 3], [3, 3]])
   })
 
-  it('stops early when both endpoints reject the key', async () => {
+  it('stops early only when both endpoints reject the key with 401', async () => {
     let calls = 0
     const fetchFn = async () => {
       calls += 1
@@ -63,9 +63,38 @@ describe('scanProviderProtocols', () => {
     })
 
     expect(outcome.error).toContain('认证失败')
+    expect(outcome.error).toContain('a')
     expect(outcome.rows).toEqual([
       { model: 'a', anthropic: null, openai: null, checkedAt: expect.any(String), note: 'messages: bad key; chat: bad key' }
     ])
     expect(calls).toBe(2)
+  })
+
+  it('keeps scanning after 403 and 402 responses', async () => {
+    const fetchFn = async (url: string, init?: RequestInit) => {
+      const model = JSON.parse(String(init?.body)).model as string
+      if (model === 'a') return response(403, '{"error":{"message":"region blocked"}}')
+      if (model === 'b') {
+        return url.endsWith('/messages')
+          ? response(402, '{"error":{"message":"quota"}}')
+          : response(200, '{}')
+      }
+      return response(200, '{}')
+    }
+
+    const outcome = await scanProviderProtocols({
+      provider: provider(),
+      apiKey: 'k',
+      models: ['a', 'b', 'c'],
+      fetchFn,
+      concurrency: 1
+    })
+
+    expect(outcome.error).toBeUndefined()
+    expect(outcome.rows).toEqual([
+      { model: 'a', anthropic: null, openai: null, checkedAt: expect.any(String), note: 'messages: region blocked; chat: region blocked' },
+      { model: 'b', anthropic: null, openai: true, checkedAt: expect.any(String), note: 'messages: quota' },
+      { model: 'c', anthropic: true, openai: true, checkedAt: expect.any(String), note: undefined }
+    ])
   })
 })
