@@ -13,6 +13,7 @@ describe('presets', () => {
     const provider = createProviderFromPreset('opencode-go', 'p1')
     expect(provider.quotaAdapter).toBe('opencode-go')
     expect(provider.id).toBe('p1')
+    expect(createProviderFromPreset('commandcode', 'p2').quotaAdapter).toBe('commandcode-usage')
   })
 })
 

@@ -25,6 +25,7 @@ import { startServer } from './server/start'
 import { QuotaScheduler } from './quota/scheduler'
 import { opencodeGoAdapter } from './quota/opencodeGo'
 import { deepseekBalanceAdapter } from './quota/deepseek'
+import { commandCodeAdapter } from './quota/commandcode'
 import type { QuotaAdapter } from './quota/types'
 import type { AppDeps } from './server/app'
 import type { ProviderInput, ProviderPatch, TestResult } from './ipc-types'
@@ -598,6 +599,7 @@ export class Hub {
   private adapterFor(provider: ProviderConfig): QuotaAdapter | null {
     if (provider.quotaAdapter === 'opencode-go') return opencodeGoAdapter
     if (provider.quotaAdapter === 'deepseek-balance') return deepseekBalanceAdapter
+    if (provider.quotaAdapter === 'commandcode-usage') return commandCodeAdapter
     return null
   }
 

@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { opencodeGoAdapter } from '../../core/quota/opencodeGo'
 import { deepseekBalanceAdapter } from '../../core/quota/deepseek'
+import { commandCodeAdapter } from '../../core/quota/commandcode'
 import { createProviderFromPreset } from '../../core/providers/presets'
+import type { ProbeFetchFn } from '../../core/quota/types'
 
 const provider = (preset: 'opencode-go' | 'deepseek') => createProviderFromPreset(preset, 'p1')
 const now = () => new Date('2026-10-28T00:00:00Z')
@@ -82,5 +84,125 @@ describe('deepseek balance adapter', () => {
       }), { status: 200 })
     await expect(deepseekBalanceAdapter.probe(provider('deepseek'), 'k', { fetchFn: fetchFn as never, now }))
       .rejects.toThrow('balance payload has no usable balance_infos')
+  })
+})
+
+describe('commandcode quota adapter', () => {
+  const ccProvider = () => createProviderFromPreset('commandcode', 'cc')
+  const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status })
+
+  const routes = (overrides: Record<string, () => Response> = {}): ProbeFetchFn => async (url) => {
+    const path = new URL(url).pathname
+    if (overrides[path]) return overrides[path]()
+    if (path === '/alpha/billing/credits') {
+      return json({
+        data: {
+          credits: { monthlyCredits: 40, purchasedCredits: 8, freeCredits: 2, planId: 'individual-goat', belowThreshold: false },
+          windowLimits: {
+            limited: true,
+            fiveHour: { used: 7, cap: 14, resetAt: 1767000000000 },
+            weekly: { used: 20, cap: 35, resetsAt: '2026-11-02T00:00:00.000Z' }
+          }
+        }
+      })
+    }
+    if (path === '/alpha/whoami') return json({ user: { userName: 'owner' }, org: { id: 'org-1' } })
+    if (path === '/alpha/billing/subscriptions') {
+      return json({ data: { planId: 'individual-goat', status: 'active', currentPeriodEnd: '2026-11-30T00:00:00.000Z' } })
+    }
+    return json({ error: 'not found' }, 404)
+  }
+
+  it('maps the 5h/weekly/monthly windows and remaining credits', async () => {
+    const snapshot = await commandCodeAdapter.probe(ccProvider(), 'k', { fetchFn: routes(), now })
+    expect(snapshot.availability).toBe('ok')
+    expect(snapshot.windows?.rolling).toEqual({
+      percent: 50,
+      status: 'ok',
+      resetsAt: new Date(1767000000000).toISOString()
+    })
+    expect(snapshot.windows?.weekly?.percent).toBeCloseTo((20 / 35) * 100)
+    expect(snapshot.windows?.weekly?.resetsAt).toBe('2026-11-02T00:00:00.000Z')
+    expect(snapshot.windows?.monthly?.percent).toBeCloseTo((30 / 70) * 100)
+    expect(snapshot.windows?.monthly?.resetsAt).toBe('2026-11-30T00:00:00.000Z')
+    expect(snapshot.balance).toEqual({ amount: 40, currency: 'USD' })
+    expect(snapshot.note).toContain('GOAT')
+    expect(snapshot.source).toBe('probe')
+  })
+
+  it('marks the provider exhausted when a window is used up', async () => {
+    const fetchFn = routes({
+      '/alpha/billing/credits': () => json({
+        data: {
+          credits: { monthlyCredits: 40, planId: 'individual-goat' },
+          windowLimits: { limited: true, fiveHour: { used: 14, cap: 14, resetAt: 1767000000000 } }
+        }
+      })
+    })
+    const snapshot = await commandCodeAdapter.probe(ccProvider(), 'k', { fetchFn, now })
+    expect(snapshot.availability).toBe('exhausted')
+    expect(snapshot.windows?.rolling).toMatchObject({ percent: 100, status: 'rate-limited' })
+  })
+
+  it('treats 401 as an auth error without throwing', async () => {
+    const fetchFn = routes({ '/alpha/billing/credits': () => json({ error: 'unauthorized' }, 401) })
+    const snapshot = await commandCodeAdapter.probe(ccProvider(), 'k', { fetchFn, now })
+    expect(snapshot.availability).toBe('auth_error')
+    expect(snapshot.note).toBe('billing 401')
+  })
+
+  it('fails the probe on 403 so the scheduler can disable it', async () => {
+    const fetchFn = routes({ '/alpha/billing/credits': () => json({ error: 'forbidden' }, 403) })
+    await expect(commandCodeAdapter.probe(ccProvider(), 'k', { fetchFn, now }))
+      .rejects.toThrow('/alpha/billing/credits 403')
+  })
+
+  it('shows remaining credits without guessing a cap for unknown plans', async () => {
+    const fetchFn = routes({
+      '/alpha/billing/credits': () => json({
+        data: {
+          credits: { monthlyCredits: 12, planId: 'individual-mystery' },
+          windowLimits: { limited: true, fiveHour: { used: 1, cap: 5 } }
+        }
+      }),
+      '/alpha/billing/subscriptions': () => json({ data: { planId: 'individual-mystery' } })
+    })
+    const snapshot = await commandCodeAdapter.probe(ccProvider(), 'k', { fetchFn, now })
+    expect(snapshot.windows?.monthly).toBeUndefined()
+    expect(snapshot.balance).toEqual({ amount: 12, currency: 'USD' })
+    expect(snapshot.note).toContain('未识别套餐上限')
+  })
+
+  it('omits the 5h/weekly windows when the plan is not limited by them', async () => {
+    const fetchFn = routes({
+      '/alpha/billing/credits': () => json({
+        data: {
+          credits: { monthlyCredits: 40, planId: 'individual-goat' },
+          windowLimits: { limited: false }
+        }
+      })
+    })
+    const snapshot = await commandCodeAdapter.probe(ccProvider(), 'k', { fetchFn, now })
+    expect(snapshot.windows?.rolling).toBeUndefined()
+    expect(snapshot.windows?.weekly).toBeUndefined()
+    expect(snapshot.windows?.monthly).toBeDefined()
+    expect(snapshot.note).toContain('不受 5 小时/周窗口限制')
+  })
+
+  it('keeps credits data when whoami is unavailable', async () => {
+    const fetchFn = routes({ '/alpha/whoami': () => json({ error: 'boom' }, 500) })
+    const snapshot = await commandCodeAdapter.probe(ccProvider(), 'k', { fetchFn, now })
+    expect(snapshot.availability).toBe('ok')
+    expect(snapshot.windows?.monthly?.percent).toBeCloseTo((30 / 70) * 100)
+    expect(snapshot.windows?.monthly?.resetsAt).toBeNull()
+  })
+
+  it('rejects a payload with no recognizable windows', async () => {
+    const fetchFn = routes({
+      '/alpha/billing/credits': () => json({ data: { credits: {} } }),
+      '/alpha/whoami': () => json({ error: 'boom' }, 500)
+    })
+    await expect(commandCodeAdapter.probe(ccProvider(), 'k', { fetchFn, now }))
+      .rejects.toThrow('billing payload has no recognizable windows')
   })
 })

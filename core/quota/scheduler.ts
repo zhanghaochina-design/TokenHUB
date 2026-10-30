@@ -2,6 +2,7 @@ import type { ProviderConfig } from '../types'
 import type { RuntimeStore } from '../router/runtime'
 import { opencodeGoAdapter } from './opencodeGo'
 import { deepseekBalanceAdapter } from './deepseek'
+import { commandCodeAdapter } from './commandcode'
 import type { ProbeFetchFn, QuotaAdapter } from './types'
 
 const DEEPSEEK_INTERVAL_MS = 5 * 60 * 1000
@@ -69,6 +70,7 @@ export class QuotaScheduler {
   private adapterFor(provider: ProviderConfig): QuotaAdapter | null {
     if (provider.quotaAdapter === 'opencode-go') return opencodeGoAdapter
     if (provider.quotaAdapter === 'deepseek-balance') return deepseekBalanceAdapter
+    if (provider.quotaAdapter === 'commandcode-usage') return commandCodeAdapter
     return null
   }
 }

@@ -31,7 +31,8 @@ type FieldErrors = Partial<Record<'name' | 'baseUrl' | 'apiKey' | 'lowBalance' |
 const QUOTA_ADAPTERS: Array<{ value: QuotaAdapterId; label: string }> = [
   { value: 'none', label: '不查询额度' },
   { value: 'opencode-go', label: 'OpenCode Go 额度接口' },
-  { value: 'deepseek-balance', label: 'DeepSeek 余额接口' }
+  { value: 'deepseek-balance', label: 'DeepSeek 余额接口' },
+  { value: 'commandcode-usage', label: 'CommandCode 套餐接口' }
 ]
 
 const INPUT_CLASS =

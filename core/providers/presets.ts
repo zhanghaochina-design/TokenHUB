@@ -10,7 +10,7 @@ export interface PresetDefinition {
 
 export const PROVIDER_PRESETS: PresetDefinition[] = [
   { preset: 'opencode-go', name: 'OpenCode Go', baseUrl: 'https://opencode.ai/zen/go/v1', quotaAdapter: 'opencode-go' },
-  { preset: 'commandcode', name: 'CommandCode Goat', baseUrl: 'https://api.commandcode.ai/provider/v1', quotaAdapter: 'none' },
+  { preset: 'commandcode', name: 'CommandCode Goat', baseUrl: 'https://api.commandcode.ai/provider/v1', quotaAdapter: 'commandcode-usage' },
   { preset: 'deepseek', name: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1', quotaAdapter: 'deepseek-balance' }
 ]
 

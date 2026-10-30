@@ -83,6 +83,31 @@ function ProviderQuota({ provider, runtime, now }: { provider: ProviderWithKey; 
     )
   }
 
+  if (provider.quotaAdapter === 'commandcode-usage') {
+    const windows = snapshot?.windows ?? {}
+    const hasWindows = Boolean(windows.rolling || windows.weekly || windows.monthly)
+    return (
+      <>
+        {snapshot?.note || snapshot?.balance ? (
+          <div className="mt-3 flex flex-wrap items-baseline justify-between gap-2">
+            <span className="text-xs text-muted">{snapshot?.note ?? 'CommandCode 套餐'}</span>
+            {snapshot?.balance ? (
+              <span className="text-sm font-semibold tabular-nums text-ink">
+                本月剩余 {BALANCE_FORMAT.format(snapshot.balance.amount)}
+                <span className="ml-1 text-xs font-medium text-muted">{snapshot.balance.currency}</span>
+              </span>
+            ) : null}
+          </div>
+        ) : null}
+        {hasWindows ? (
+          <QuotaWindows windows={windows} now={now} />
+        ) : (
+          <p className="mt-3 text-xs text-muted">暂无额度窗口数据，等待探针首次刷新。</p>
+        )}
+      </>
+    )
+  }
+
   if (provider.quotaAdapter === 'deepseek-balance') {
     return (
       <>

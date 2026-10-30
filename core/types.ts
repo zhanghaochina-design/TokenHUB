@@ -1,5 +1,5 @@
 export type Preset = 'opencode-go' | 'commandcode' | 'deepseek' | 'custom'
-export type QuotaAdapterId = 'opencode-go' | 'deepseek-balance' | 'none'
+export type QuotaAdapterId = 'opencode-go' | 'deepseek-balance' | 'commandcode-usage' | 'none'
 export type Availability = 'ok' | 'exhausted' | 'rate_limited' | 'auth_error' | 'unknown'
 export type ErrorKind = 'quota' | 'rate_limit' | 'auth' | 'transient' | 'model_missing' | 'request' | 'unknown'
 export type Protocol = 'openai' | 'anthropic'
