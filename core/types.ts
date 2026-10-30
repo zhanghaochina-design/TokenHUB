@@ -95,6 +95,8 @@ export interface ProviderRuntime {
   cooldownUntil: string | null
   lastErrorKind: ErrorKind | null
   consecutiveFailures: number
+  // 连续瞬时故障数，仅用于指数退避；客户端中断不计入。
+  transientFailures: number
   quota: QuotaSnapshot | null
   probeFailures: number
   probeDisabled: boolean

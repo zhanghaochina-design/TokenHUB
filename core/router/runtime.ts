@@ -1,6 +1,13 @@
 import type { ProviderConfig, ProviderRuntime, QuotaSnapshot, UpstreamFailure } from '../types'
 
-const TRANSIENT_COOLDOWN_MS = 60_000
+// 首字节前的瞬时故障通常 10s 内可恢复；仍失败说明上游/网络持续异常，再逐级退避到 1 分钟。
+const TRANSIENT_COOLDOWN_BASE_MS = 10_000
+const TRANSIENT_COOLDOWN_MAX_MS = 60_000
+
+function transientCooldownMs(streak: number): number {
+  const exponent = Math.min(Math.max(streak - 1, 0), 3)
+  return Math.min(TRANSIENT_COOLDOWN_MAX_MS, TRANSIENT_COOLDOWN_BASE_MS * 2 ** exponent)
+}
 
 export class RuntimeStore {
   private states = new Map<string, ProviderRuntime>()
@@ -16,6 +23,7 @@ export class RuntimeStore {
         cooldownUntil: null,
         lastErrorKind: null,
         consecutiveFailures: 0,
+        transientFailures: 0,
         quota: null,
         probeFailures: 0,
         probeDisabled: false
@@ -36,12 +44,22 @@ export class RuntimeStore {
     return true
   }
 
+  /** 冷却剩余毫秒；未冷却返回 0。用于无候选时给客户端下发 Retry-After。 */
+  cooldownRemainingMs(id: string): number {
+    const state = this.states.get(id)
+    if (!state?.cooldownUntil) return 0
+    const until = Date.parse(state.cooldownUntil)
+    if (Number.isNaN(until)) return 0
+    return Math.max(0, until - this.now().getTime())
+  }
+
   markSuccess(id: string): void {
     const state = this.get(id)
     state.availability = 'ok'
     state.cooldownUntil = null
     state.lastErrorKind = null
     state.consecutiveFailures = 0
+    state.transientFailures = 0
   }
 
   markFailure(provider: ProviderConfig, failure: UpstreamFailure): void {
@@ -54,13 +72,15 @@ export class RuntimeStore {
       state.cooldownUntil = new Date(now + provider.quota.quotaCooldownMs).toISOString()
     } else if (failure.kind === 'rate_limit') {
       state.availability = 'rate_limited'
-      state.cooldownUntil = new Date(now + (failure.retryAfterMs ?? TRANSIENT_COOLDOWN_MS)).toISOString()
+      state.cooldownUntil = new Date(now + (failure.retryAfterMs ?? TRANSIENT_COOLDOWN_MAX_MS)).toISOString()
     } else if (failure.kind === 'auth') {
       state.availability = 'auth_error'
       state.cooldownUntil = null
     } else if (failure.kind === 'transient') {
+      // 客户端中断（kind=request）不进来；只有真实上游/网络故障才升级退避。
+      state.transientFailures += 1
       state.availability = 'unknown'
-      state.cooldownUntil = new Date(now + TRANSIENT_COOLDOWN_MS).toISOString()
+      state.cooldownUntil = new Date(now + transientCooldownMs(state.transientFailures)).toISOString()
     }
   }
 
@@ -95,6 +115,7 @@ export class RuntimeStore {
     state.cooldownUntil = null
     state.lastErrorKind = null
     state.consecutiveFailures = 0
+    state.transientFailures = 0
     state.probeFailures = 0
     state.probeDisabled = false
   }

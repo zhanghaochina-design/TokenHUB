@@ -59,7 +59,7 @@ type ForwardedResponse = Extract<ForwardOutcome, { ok: true }> & { protocol: Pro
 // 首字节前只在这些状态（及全部 5xx）上换入口重试一次；鉴权/额度问题两端共用同一 Key，重试没有意义。
 const PROTOCOL_FALLBACK_STATUSES = new Set([400, 404, 405, 422])
 
-/** 客户端主动断开：不算供应商故障，不触发冷却/故障转移（runtime.markFailure 对 request 只计数）。 */
+/** 客户端主动断开：不算供应商故障，不触发冷却/故障转移，也不计入瞬时退避（runtime.markFailure 对 request 只计入 consecutiveFailures）。 */
 function clientAborted(): UpstreamFailure {
   return { kind: 'request', status: null, message: 'client aborted the request', retryAfterMs: null }
 }
@@ -262,7 +262,10 @@ export function createApp(deps: AppDeps): Hono {
     }
     if (resolution.candidates.length === 0) {
       recordFailure(failureContext, 503, 'unknown', null, null, [])
-      return errorResponse(c, 'openai', 503, 'no available provider for this model', null, [])
+      // 候选全在冷却：带上剩余秒数，客户端按 Retry-After 等待，而不是 1s 内反复撞同一个冷却窗口。
+      const cooldown = resolution.retryAfterMs
+      return errorResponse(c, 'openai', 503, 'no available provider for this model',
+        cooldown ? { kind: 'unknown', status: 503, message: 'provider cooling down', retryAfterMs: cooldown } : null, [])
     }
 
     const sessionId = sessionIdOf(c)
@@ -420,7 +423,10 @@ export function createApp(deps: AppDeps): Hono {
     }
     if (resolution.candidates.length === 0) {
       recordFailure(failureContext, 503, 'unknown', null, null, [])
-      return errorResponse(c, 'anthropic', 503, 'no available provider for this model', null, [])
+      // 与 OpenAI 分支一致：冷却期把剩余秒数透给客户端。
+      const cooldown = resolution.retryAfterMs
+      return errorResponse(c, 'anthropic', 503, 'no available provider for this model',
+        cooldown ? { kind: 'unknown', status: 503, message: 'provider cooling down', retryAfterMs: cooldown } : null, [])
     }
 
     const sessionId = sessionIdOf(c)

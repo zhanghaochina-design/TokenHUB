@@ -31,7 +31,7 @@
 - 上游协议按客户端入口 + 能力表选择：本地 `/v1/messages` 优先直连上游 `/messages`，本地 `/v1/chat/completions` 优先直连 `/chat/completions`；`provider.protocolSupport` 明确不支持时改走另一形状，未知时按预设兜底（CommandCode 按模型，OpenCode Go 两端皆可，其余仅 Chat）。首字节前 400/404/405/422/5xx 会换另一入口重试一次；401/402/429 与首字节后失败不换。CommandCode 的 `claude*` 模型只能走 `/messages`，其余只能走 `/chat/completions`；OpenAI 客户端请求这些 Claude 模型时走双向转译（`core/protocol/openai.ts`）。OpenCode Go 的 `/messages` 实测也支持 DeepSeek（官方文档未标注）。
 - 模型页「扫描」按供应商探测每个模型的 `/messages` 与 `/chat/completions`（max_tokens=16），结果持久化到 `config.json` 的 `protocolSupport`；扫描不写历史、不计供应商冷却。只有同一模型两个入口都 401（Key 无效）才提前停止，403/402 只记录当前模型并继续。
 - OpenCode Go 要求 `x-opencode-session` 与可识别 User-Agent：优先透传客户端会话头（`x-claude-code-session-id` 等），缺失时每请求生成 UUID，否则上游返回 400。
-- 客户端中断不算供应商故障，不得冷却供应商；上游在首字节后截断则按 transient 冷却，但不切换。
+- 客户端中断不算供应商故障，不得冷却供应商；上游在首字节后截断则按 transient 冷却，但不切换。瞬时故障冷却按连续次数退避 10/20/40/60 秒；因冷却导致无候选时，503 必须带 `Retry-After`（剩余秒数），客户端据此等待而不是立即重试。
 - Electron 开发/E2E 不写系统自启项（`app.isPackaged` 守卫）；E2E 使用临时 `TOKENHUB_DATA_DIR` 与 `TOKENHUB_PORT`。
 - `secrets.bin` 不能跨实例复用：safeStorage/DPAPI 与写入它的实例绑定，复制到其他数据目录会解密失败并按损坏隔离；真机联调必须在原实例内进行或重新录入 Key。
 - 启动时端口被占用不是致命错误：`Hub.init` 记录 `server.error` 照常完成，窗口必须出现；用户在设置页重新提交端口才重启监听（相同端口也允许重试）。

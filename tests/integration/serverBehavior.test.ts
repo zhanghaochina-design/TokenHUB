@@ -142,6 +142,17 @@ describe('server behavior', () => {
     expect(records[0]).toMatchObject({ httpStatus: 503, outcome: 'error', providerId: null, failoverFrom: [] })
   })
 
+  it('sets Retry-After to the remaining cooldown instead of failing silently', async () => {
+    const nowRef = { value: new Date('2026-10-28T00:00:00Z') }
+    const runtime = new RuntimeStore(() => nowRef.value)
+    const { port, providers } = await boot(noop, { runtime })
+    runtime.markFailure(providers[0], { kind: 'transient', status: null, message: 'network error', retryAfterMs: null })
+    const res = await chat(port, { model: 'm', messages: [] })
+    expect(res.status).toBe(503)
+    expect(res.headers.get('retry-after')).toBe('10')
+    expect(requests).toHaveLength(0)
+  })
+
   it('records the last provider and failover list when all candidates fail', async () => {
     const { port } = await boot((path) => ({ status: 500, body: path.startsWith('/p1/') ? '{"error":{"message":"p1 down"}}' : '{"error":{"message":"p2 down"}}' }), { providerIds: ['p1', 'p2'] })
     const res = await chat(port, { model: 'm', messages: [] })

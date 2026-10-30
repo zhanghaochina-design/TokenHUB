@@ -157,6 +157,8 @@ describe('anthropic non-stream', () => {
     const res = await postMessages(port, textMessage)
     expect(res.status).toBe(503)
     expect(res.headers.get('x-tokenhub-provider')).toBeNull()
+    // 额度冷却 5h：503 必须告诉客户端还要等多久，避免立即重试。
+    expect(res.headers.get('retry-after')).toBe('18000')
     expect(await res.json()).toMatchObject({ type: 'error', error: { type: 'api_error', message: 'no available provider for this model' } })
     expect(requests).toHaveLength(0)
 

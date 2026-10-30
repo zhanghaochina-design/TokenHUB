@@ -11,6 +11,18 @@ export interface Resolution {
   model: string
   modelKnown: boolean
   candidates: Candidate[]
+  // 候选全被冷却挡掉时的最短剩余冷却；用于 503 的 Retry-After。
+  retryAfterMs: number | null
+}
+
+function shortestCooldown(runtime: RuntimeStore, providerIds: string[]): number | null {
+  let shortest: number | null = null
+  for (const id of providerIds) {
+    const remaining = runtime.cooldownRemainingMs(id)
+    if (remaining <= 0) continue
+    shortest = shortest === null ? remaining : Math.min(shortest, remaining)
+  }
+  return shortest
 }
 
 export function resolveCandidates(input: {
@@ -25,7 +37,7 @@ export function resolveCandidates(input: {
   const parsed = direct ? { providerId: null, model: requestedModel } : parseRequestedModel(requestedModel, providers)
   if (parsed.providerId) {
     const provider = providers.find((p) => p.id === parsed.providerId)
-    if (!provider) return { model: parsed.model, modelKnown: false, candidates: [] }
+    if (!provider) return { model: parsed.model, modelKnown: false, candidates: [], retryAfterMs: null }
     const canonicalTarget = catalog
       .find((model) => model.id === parsed.model)
       ?.targets.find((target) => target.providerId === provider.id)
@@ -35,21 +47,36 @@ export function resolveCandidates(input: {
     const upstreamModel = canonicalTarget?.upstreamModel ?? (aliasTarget || providerSupports(provider, parsed.model) ? parsed.model : null)
     const known = Boolean(upstreamModel) && provider.enabled
     const candidates = known && runtime.isRoutable(provider.id) ? [{ provider, upstreamModel: upstreamModel! }] : []
-    return { model: parsed.model, modelKnown: known, candidates }
+    return {
+      model: parsed.model,
+      modelKnown: known,
+      candidates,
+      retryAfterMs: candidates.length === 0 ? shortestCooldown(runtime, [provider.id]) : null
+    }
   }
   const entry = catalog.find((m) => m.id === parsed.model)
-  if (!entry) return { model: parsed.model, modelKnown: false, candidates: [] }
+  if (!entry) return { model: parsed.model, modelKnown: false, candidates: [], retryAfterMs: null }
   const providerOrder = new Map(providers.map((provider, index) => [provider.id, index]))
   const targets = [...entry.targets].sort(
     (a, b) => (providerOrder.get(a.providerId) ?? Number.MAX_SAFE_INTEGER) - (providerOrder.get(b.providerId) ?? Number.MAX_SAFE_INTEGER)
   )
   const candidates: Candidate[] = []
+  const cooling: string[] = []
   for (const target of targets) {
     const provider = providers.find((p) => p.id === target.providerId)
-    if (!provider || !provider.enabled || !runtime.isRoutable(provider.id)) continue
+    if (!provider || !provider.enabled) continue
+    if (!runtime.isRoutable(provider.id)) {
+      cooling.push(provider.id)
+      continue
+    }
     candidates.push({ provider, upstreamModel: target.upstreamModel })
   }
-  return { model: parsed.model, modelKnown: true, candidates }
+  return {
+    model: parsed.model,
+    modelKnown: true,
+    candidates,
+    retryAfterMs: candidates.length === 0 ? shortestCooldown(runtime, cooling) : null
+  }
 }
 
 export type AttemptResult<T> = { ok: true; value: T } | { ok: false; failure: UpstreamFailure }

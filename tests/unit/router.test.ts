@@ -123,6 +123,25 @@ describe('resolveCandidates', () => {
     })
     expect(result.modelKnown).toBe(false)
   })
+
+  it('reports the remaining cooldown when every target is cooling', () => {
+    const a = provider('a', ['m'])
+    const rt = runtime()
+    rt.markFailure(a, failure('transient'))
+    const canonical = resolveCandidates({ requestedModel: 'm', providers: [a], catalog: buildCatalog([a]), runtime: rt })
+    expect(canonical.candidates).toEqual([])
+    expect(canonical.retryAfterMs).toBe(10_000)
+    const pinned = resolveCandidates({ requestedModel: 'a/m', providers: [a], catalog: buildCatalog([a]), runtime: rt })
+    expect(pinned.candidates).toEqual([])
+    expect(pinned.retryAfterMs).toBe(10_000)
+  })
+
+  it('has no retry hint when the only provider is disabled', () => {
+    const a = provider('a', ['m'], false)
+    const result = resolveCandidates({ requestedModel: 'm', providers: [a], catalog: buildCatalog([a]), runtime: runtime() })
+    expect(result.modelKnown).toBe(false)
+    expect(result.retryAfterMs).toBeNull()
+  })
 })
 
 describe('RuntimeStore', () => {
@@ -143,6 +162,38 @@ describe('RuntimeStore', () => {
     expect(rt.isRoutable('a')).toBe(false)
     rt.reset('a')
     expect(rt.isRoutable('a')).toBe(true)
+  })
+
+  it('backs transient cooldowns off 10s/20s/40s/60s and ignores client aborts', () => {
+    const rt = runtime()
+    const p = provider('a', ['m'])
+    const remaining = () => Date.parse(rt.get('a').cooldownUntil!) - nowRef.value.getTime()
+    rt.markFailure(p, failure('request'))
+    rt.markFailure(p, failure('transient'))
+    expect(remaining()).toBe(10_000)
+    rt.markFailure(p, failure('transient'))
+    expect(remaining()).toBe(20_000)
+    rt.markFailure(p, failure('transient'))
+    expect(remaining()).toBe(40_000)
+    rt.markFailure(p, failure('transient'))
+    expect(remaining()).toBe(60_000)
+    rt.markFailure(p, failure('transient'))
+    expect(remaining()).toBe(60_000)
+    rt.markSuccess('a')
+    rt.markFailure(p, failure('transient'))
+    expect(remaining()).toBe(10_000)
+  })
+
+  it('reports cooldown remainder and clears it after expiry', () => {
+    const rt = runtime()
+    const p = provider('a', ['m'])
+    rt.markFailure(p, failure('transient'))
+    expect(rt.cooldownRemainingMs('a')).toBe(10_000)
+    nowRef.value = new Date(nowRef.value.getTime() + 4_000)
+    expect(rt.cooldownRemainingMs('a')).toBe(6_000)
+    nowRef.value = new Date(nowRef.value.getTime() + 7_000)
+    expect(rt.cooldownRemainingMs('a')).toBe(0)
+    expect(rt.cooldownRemainingMs('unknown')).toBe(0)
   })
 })
 
