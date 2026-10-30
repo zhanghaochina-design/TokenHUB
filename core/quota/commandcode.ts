@@ -1,5 +1,6 @@
 import type { QuotaAdapter, ProbeFetchFn, ProbeOptions } from './types'
 import type { ProviderConfig, QuotaSnapshot, QuotaWindow } from '../types'
+import { APP_NAME, APP_VERSION } from '../appInfo'
 
 const DEFAULT_API_BASE = 'https://api.commandcode.ai'
 
@@ -68,7 +69,8 @@ function apiBaseOf(provider: ProviderConfig): string {
 
 async function getJson(fetchFn: ProbeFetchFn, url: string, apiKey: string): Promise<JsonResult> {
   const res = await fetchFn(url, {
-    headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' },
+    // 控制台的内部接口会拦默认的 node UA；带上稳定的应用标识（同类客户端也会显式设置 UA）。
+    headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json', 'User-Agent': `${APP_NAME}/${APP_VERSION}` },
     signal: AbortSignal.timeout(15_000)
   })
   if (res.status === 401) return { status: 401, json: {} }

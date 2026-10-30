@@ -60,7 +60,11 @@ function localDay(date: Date): string {
 }
 
 function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
+  if (!(error instanceof Error)) return String(error)
+  // fetch 的网络错误只有 "fetch failed"，真正原因（DNS/TLS/连接重置）在 cause 里。
+  const cause = (error as { cause?: unknown }).cause
+  if (cause instanceof Error) return `${error.message}: ${cause.message}`
+  return cause ? `${error.message}: ${String(cause)}` : error.message
 }
 
 // 上游只允许 https；明文 http 仅限本机回环，避免把 Key 发给局域网/公网。
@@ -164,7 +168,8 @@ export class Hub {
       (id) => this.secrets.getProviderKey(id),
       () => this.schedulerUpdate(),
       this.now,
-      this.fetchFn
+      this.fetchFn,
+      (message) => void this.logger.warn(message)
     )
     this.scheduler.start(this.config.settings.quotaRefreshSec * 1000)
     this.timers.push(setInterval(() => void this.refreshStaleModels(), HOUR_MS))
@@ -480,6 +485,7 @@ export class Hub {
   async resetProvider(id: string): Promise<void> {
     this.requireProvider(id)
     this.runtime.reset(id)
+    this.scheduler?.resetBackoff(id)
     this.emit()
   }
 

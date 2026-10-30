@@ -101,7 +101,6 @@ export interface ProviderRuntime {
   transientFailures: number
   quota: QuotaSnapshot | null
   probeFailures: number
-  probeDisabled: boolean
 }
 
 export interface MergedModelTarget {

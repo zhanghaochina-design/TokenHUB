@@ -196,17 +196,9 @@ function ProviderCard({
         </div>
       )}
 
-      {runtime?.probeDisabled && (
+      {runtime && runtime.probeFailures > 0 && (
         <div className="mt-3 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800 ring-1 ring-inset ring-amber-600/20">
-          <p>额度探针已停用（连续失败）。路由仍按错误码工作。</p>
-          <button
-            type="button"
-            onClick={() => onReset(provider.id)}
-            disabled={resetting}
-            className="mt-1.5 font-medium text-amber-900 underline underline-offset-2 transition-colors hover:text-amber-950 disabled:opacity-60"
-          >
-            重新启用探针
-          </button>
+          额度探针连续失败 {runtime.probeFailures} 次，已自动退避重试；路由仍按错误码工作。
         </div>
       )}
     </li>

@@ -25,8 +25,7 @@ export class RuntimeStore {
         consecutiveFailures: 0,
         transientFailures: 0,
         quota: null,
-        probeFailures: 0,
-        probeDisabled: false
+        probeFailures: 0
       }
       this.states.set(id, state)
     }
@@ -87,6 +86,8 @@ export class RuntimeStore {
   markProbe(provider: ProviderConfig, snapshot: QuotaSnapshot): void {
     const state = this.get(provider.id)
     state.quota = snapshot
+    // 成功探测（含手动刷新）即清零失败计数，避免一次抖动后一直停在失败状态。
+    state.probeFailures = 0
     if (snapshot.availability === 'auth_error') {
       state.availability = 'auth_error'
       state.cooldownUntil = null
@@ -117,7 +118,6 @@ export class RuntimeStore {
     state.consecutiveFailures = 0
     state.transientFailures = 0
     state.probeFailures = 0
-    state.probeDisabled = false
   }
 
   remove(id: string): void {
