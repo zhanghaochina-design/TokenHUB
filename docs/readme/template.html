@@ -559,7 +559,7 @@
             <rect x="806" y="232" width="278" height="58" rx="10" fill="#fff" stroke="#e2e8f0"></rect>
             <circle cx="824" cy="254" r="3.5" fill="#22c55e"></circle>
             <text x="836" y="258" font-size="13.5" font-weight="600" fill="#1f2328">CommandCode Goat</text>
-            <text x="836" y="275" font-size="10.5" fill="#64748b">按 429 / 402 错误码冷却</text>
+            <text x="836" y="275" font-size="10.5" fill="#64748b">5 小时 / 周 / 月套餐用量</text>
 
             <rect x="806" y="306" width="278" height="58" rx="10" fill="#fff" stroke="#e2e8f0"></rect>
             <circle cx="824" cy="328" r="3.5" fill="#22c55e"></circle>
@@ -623,7 +623,7 @@
         <div class="feature">
           <span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 14l4-4"></path><path d="M4.5 18a8 8 0 1 1 15 0"></path><circle cx="12" cy="18" r="1.2"></circle></svg></span>
           <h3>额度探针</h3>
-          <p>OpenCode Go 显示三窗口，DeepSeek 显示余额；没有额度接口的供应商按 429 / 402 进入冷却。</p>
+          <p>OpenCode Go 显示三窗口，CommandCode 显示套餐用量，DeepSeek 显示余额；未配置额度适配器的供应商按 429 / 402 进入冷却。</p>
         </div>
         <div class="feature">
           <span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"></circle><path d="M12 8v5l3 2"></path></svg></span>
@@ -669,15 +669,15 @@
 
       <div class="figure-stack">
         <figure class="shot">
-          <img src="{{IMG_OVERVIEW_QUOTA}}" width="1153" height="468" decoding="async" alt="概览页的供应商额度卡片：OpenCode Go 三个额度窗口、CommandCode 无额度接口、DeepSeek 账户余额">
+          <img src="{{IMG_OVERVIEW_QUOTA}}" width="1152" height="500" decoding="async" alt="概览页的供应商额度卡片：OpenCode Go 与 CommandCode 的 5 小时 / 周 / 月套餐窗口、DeepSeek 账户余额">
           <figcaption class="caption">
-            <span>额度卡按优先级排列：OpenCode Go 显示滚动 / 周 / 月窗口，DeepSeek 显示余额，无额度接口的供应商按错误码冷却。</span>
+            <span>额度卡按优先级排列：OpenCode Go 与 CommandCode 显示 5 小时 / 周 / 月窗口，DeepSeek 显示余额；未配置额度适配器的供应商按错误码冷却。</span>
             <span class="pill">演示数据</span>
           </figcaption>
         </figure>
 
         <figure class="shot">
-          <img src="{{IMG_HISTORY}}" width="1153" height="918" decoding="async" alt="最近请求表格，其中一条记录已展开，显示请求 ID、上游模型、首字节耗时、切换来源与请求方式">
+          <img src="{{IMG_HISTORY}}" width="1152" height="918" decoding="async" alt="最近请求表格，其中一条记录已展开，显示请求 ID、上游模型、首字节耗时、切换来源与请求方式">
           <figcaption class="caption">
             <span>最近请求：展开任一条可查看请求 ID、上游模型、首字节耗时、错误分类、切换来源，以及流式 / 非流式。</span>
             <span class="pill">演示数据</span>
@@ -770,7 +770,7 @@
 
       <div class="figure-stack">
         <figure class="shot">
-          <img src="{{IMG_MODELS_COMPAT}}" width="1153" height="223" decoding="async" alt="调用方式兼容性列表：三个供应商的已扫描模型数量、Messages 可用数与 Chat 可用数">
+          <img src="{{IMG_MODELS_COMPAT}}" width="1152" height="223" decoding="async" alt="调用方式兼容性列表：三个供应商的已扫描模型数量、Messages 可用数与 Chat 可用数">
           <figcaption class="caption">
             <span>调用方式兼容性：A = Anthropic /messages，O = OpenAI /chat/completions；按供应商汇总已扫描模型与最近扫描时间。</span>
             <span class="pill">演示数据</span>
@@ -778,12 +778,12 @@
         </figure>
 
         <figure class="shot">
-          <img src="{{IMG_MODELS_ALIASES}}" width="1153" height="136" decoding="async" alt="统一模型列表：claude-sonnet-4-5 映射到 OpenCode Go 与 CommandCode Goat 两家的上游模型">
+          <img src="{{IMG_MODELS_ALIASES}}" width="1152" height="136" decoding="async" alt="统一模型列表：claude-sonnet-4-5 映射到 OpenCode Go 与 CommandCode Goat 两家的上游模型">
           <figcaption class="caption"><span>统一模型：一个本地 ID 映射到多个供应商的上游模型，路由仍按供应商优先级。</span></figcaption>
         </figure>
 
         <figure class="shot">
-          <img src="{{IMG_MODELS_CATALOG}}" width="1153" height="443" decoding="async" alt="模型目录：8 个合并后的模型，右侧显示供应商徽标与 A/O 协议能力徽标">
+          <img src="{{IMG_MODELS_CATALOG}}" width="1152" height="443" decoding="async" alt="模型目录：8 个合并后的模型，右侧显示供应商徽标与 A/O 协议能力徽标">
           <figcaption class="caption">
             <span>模型目录：右侧徽标显示候选供应商与协议能力；绿色 A✓ / O✓ 表示扫描确认可用，红色表示明确不支持。</span>
             <span class="pill">演示数据</span>
@@ -834,7 +834,7 @@
       </div>
 
       <figure class="shot" style="margin-top:18px">
-        <img src="{{IMG_CONNECTION}}" width="1153" height="314" decoding="async" alt="连接信息卡片：OpenAI Base URL 与 Anthropic Base URL，均可一键复制">
+        <img src="{{IMG_CONNECTION}}" width="1152" height="314" decoding="async" alt="连接信息卡片：OpenAI Base URL 与 Anthropic Base URL，均可一键复制">
         <figcaption class="caption"><span>连接信息可直接复制：OpenAI 指向 /v1，Anthropic 指向根地址。模型名使用「模型」页显示的 ID。</span></figcaption>
       </figure>
 
@@ -1115,7 +1115,7 @@ ANTHROPIC_MODEL=claude-sonnet-4-5</code></pre>
         </details>
         <details>
           <summary>为什么有的供应商没有额度条？</summary>
-          <p>只有 OpenCode Go（三窗口）与 DeepSeek（余额）提供额度接口。CommandCode 等没有公开额度接口的供应商会根据 429 / 402 错误码进入冷却，因此卡片上只显示状态与冷却倒计时。</p>
+          <p>OpenCode Go 显示三窗口，CommandCode Goat 显示套餐用量，DeepSeek 显示余额。CommandCode 的接口未公开：403 或响应无法识别会按探针失败处理，401 才视为 Key 无效；未配置额度适配器的自定义供应商按 429 / 402 错误码冷却。</p>
         </details>
         <details>
           <summary>额度多久刷新一次？</summary>

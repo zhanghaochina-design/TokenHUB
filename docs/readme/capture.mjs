@@ -53,7 +53,7 @@ const providers = [
     name: 'CommandCode Goat',
     preset: 'commandcode',
     baseUrl: 'https://api.commandcode.ai/provider/v1',
-    quotaAdapter: 'none',
+    quotaAdapter: 'commandcode-usage',
     models: {
       cached: ['claude-sonnet-4-5', 'claude-haiku-4-5', 'glm-5.1'],
       manual: [],
@@ -126,6 +126,19 @@ const quotaCache = {
     balance: { amount: 42.18, currency: 'USD' },
     source: 'probe',
     fetchedAt: iso(now)
+  },
+  'p-cc': {
+    providerId: 'p-cc',
+    availability: 'ok',
+    windows: {
+      rolling: { percent: 28, status: 'ok', resetsAt: inHours(3) },
+      weekly: { percent: 46, status: 'ok', resetsAt: inHours(80) },
+      monthly: { percent: 63, status: 'ok', resetsAt: inHours(410) }
+    },
+    balance: { amount: 25.9, currency: 'USD' },
+    source: 'probe',
+    fetchedAt: iso(now),
+    note: 'GOAT 套餐'
   }
 }
 
