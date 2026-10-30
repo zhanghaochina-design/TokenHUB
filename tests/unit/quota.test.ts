@@ -157,7 +157,7 @@ describe('commandcode quota adapter', () => {
       .rejects.toThrow('/alpha/billing/credits 403')
   })
 
-  it('shows remaining credits without guessing a cap for unknown plans', async () => {
+  it('falls back to the $70 monthly cap for unknown plans', async () => {
     const fetchFn = routes({
       '/alpha/billing/credits': () => json({
         data: {
@@ -168,9 +168,24 @@ describe('commandcode quota adapter', () => {
       '/alpha/billing/subscriptions': () => json({ data: { planId: 'individual-mystery' } })
     })
     const snapshot = await commandCodeAdapter.probe(ccProvider(), 'k', { fetchFn, now })
-    expect(snapshot.windows?.monthly).toBeUndefined()
+    expect(snapshot.windows?.monthly?.percent).toBeCloseTo(((70 - 12) / 70) * 100)
     expect(snapshot.balance).toEqual({ amount: 12, currency: 'USD' })
-    expect(snapshot.note).toContain('未识别套餐上限')
+    expect(snapshot.note).toBe('individual-mystery 套餐')
+  })
+
+  it('uses the remaining credits as the cap when they exceed the plan cap', async () => {
+    const fetchFn = routes({
+      '/alpha/billing/credits': () => json({
+        data: {
+          credits: { monthlyCredits: 300, planId: 'individual-mystery' },
+          windowLimits: { limited: true, fiveHour: { used: 1, cap: 5 } }
+        }
+      }),
+      '/alpha/whoami': () => json({ error: 'boom' }, 500)
+    })
+    const snapshot = await commandCodeAdapter.probe(ccProvider(), 'k', { fetchFn, now })
+    expect(snapshot.windows?.monthly?.percent).toBe(0)
+    expect(snapshot.balance).toEqual({ amount: 300, currency: 'USD' })
   })
 
   it('omits the 5h/weekly windows when the plan is not limited by them', async () => {

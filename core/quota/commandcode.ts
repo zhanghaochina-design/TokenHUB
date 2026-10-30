@@ -3,7 +3,7 @@ import type { ProviderConfig, QuotaSnapshot, QuotaWindow } from '../types'
 
 const DEFAULT_API_BASE = 'https://api.commandcode.ai'
 
-// 控制台同款内部接口，按月套餐 ID 前缀给出月上限（美元 credits）；未列出的套餐不猜上限。
+// 控制台同款内部接口，按月套餐 ID 前缀给出月上限（美元 credits）；未识别的套餐按月上限 $70 估算，余额更高时以余额定标。
 const PLAN_CAPS: Array<{ prefix: string; name: string; monthlyCap: number }> = [
   { prefix: 'individual-goat', name: 'GOAT', monthlyCap: 70 },
   { prefix: 'individual-pro-v1', name: 'Pro', monthlyCap: 80 },
@@ -155,9 +155,10 @@ export const commandCodeAdapter: QuotaAdapter = {
       windows.rolling = toWindow(pick(limits, ['fiveHour', 'five_hour', 'rolling5h', '5h']))
       windows.weekly = toWindow(pick(limits, ['weekly', 'week']))
     }
-    if (monthlyRemaining !== null && plan) {
-      const cap = plan.monthlyCap
-      const used = Math.max(0, Math.min(cap, cap - monthlyRemaining))
+    if (monthlyRemaining !== null) {
+      // 未识别套餐时按月上限 $70 估算；余额高于上限（加购/赠送）时用余额本身定标，避免出现负用量。
+      const cap = Math.max(plan?.monthlyCap ?? 70, monthlyRemaining)
+      const used = Math.max(0, cap - monthlyRemaining)
       windows.monthly = {
         percent: (used / cap) * 100,
         status: used >= cap ? 'rate-limited' : 'ok',
@@ -174,7 +175,6 @@ export const commandCodeAdapter: QuotaAdapter = {
     const note: string[] = []
     if (plan) note.push(`${plan.name} 套餐`)
     else if (planId) note.push(`${planId} 套餐`)
-    if (!plan && monthlyRemaining !== null) note.push(`剩余 ${monthlyRemaining} credits，未识别套餐上限`)
     if (!limited) note.push('当前套餐不受 5 小时/周窗口限制')
     if (boolish(pick(credits, ['belowThreshold', 'below_threshold']))) note.push('剩余额度低于预警阈值')
 
