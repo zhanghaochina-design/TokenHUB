@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
 import { Loader2, PlugZap, X } from 'lucide-react'
-import { PROVIDER_PRESETS } from '../../core/providers/presets'
+import { PROVIDER_PRESETS, defaultAnthropicBaseUrl } from '../../core/providers/presets'
 import type { ProviderInput, ProviderPatch, TestResult } from '../../core/ipc-types'
 import type { Preset, ProviderConfig, QuotaAdapterId } from '../../core/types'
 import { describeQuota, errorMessage, quotaHours, splitModels } from '../lib/format'
@@ -18,6 +18,7 @@ interface FormState {
   preset: Preset
   name: string
   baseUrl: string
+  anthropicBaseUrl: string
   apiKey: string
   quotaAdapter: QuotaAdapterId
   lowBalance: string
@@ -26,7 +27,7 @@ interface FormState {
   manualModels: string
 }
 
-type FieldErrors = Partial<Record<'name' | 'baseUrl' | 'apiKey' | 'lowBalance' | 'cooldown', string>>
+type FieldErrors = Partial<Record<'name' | 'baseUrl' | 'anthropicBaseUrl' | 'apiKey' | 'lowBalance' | 'cooldown', string>>
 
 const QUOTA_ADAPTERS: Array<{ value: QuotaAdapterId; label: string }> = [
   { value: 'none', label: '不查询额度' },
@@ -48,6 +49,7 @@ function initialForm(provider: ProviderWithKey | null): FormState {
       preset: 'custom',
       name: '',
       baseUrl: '',
+      anthropicBaseUrl: '',
       apiKey: '',
       quotaAdapter: 'none',
       lowBalance: '0.5',
@@ -60,6 +62,7 @@ function initialForm(provider: ProviderWithKey | null): FormState {
     preset: provider.preset,
     name: provider.name,
     baseUrl: provider.baseUrl,
+    anthropicBaseUrl: provider.anthropicBaseUrl ?? '',
     apiKey: '',
     quotaAdapter: provider.quotaAdapter,
     lowBalance: String(provider.quota.lowBalanceThreshold),
@@ -80,6 +83,11 @@ function baseUrlError(raw: string): string | undefined {
   return undefined
 }
 
+function optionalBaseUrlError(raw: string): string | undefined {
+  if (!raw.trim()) return undefined
+  return baseUrlError(raw)
+}
+
 function parseNonNegative(raw: string): number | null {
   if (raw.trim() === '') return null
   const value = Number(raw)
@@ -93,6 +101,7 @@ function buildInput(form: FormState): ProviderInput {
     preset: form.preset,
     name: form.name.trim(),
     baseUrl: form.baseUrl.trim(),
+    anthropicBaseUrl: form.anthropicBaseUrl.trim() || undefined,
     apiKey: form.apiKey.trim(),
     quotaAdapter: form.quotaAdapter,
     quota: {
@@ -109,6 +118,7 @@ export function ProviderDialog({ provider, onClose, onError }: ProviderDialogPro
   const panelRef = useRef<HTMLDivElement>(null)
   const nameRef = useRef<HTMLInputElement>(null)
   const baseUrlRef = useRef<HTMLInputElement>(null)
+  const anthropicBaseUrlRef = useRef<HTMLInputElement>(null)
   const apiKeyRef = useRef<HTMLInputElement>(null)
   const lowBalanceRef = useRef<HTMLInputElement>(null)
   const cooldownRef = useRef<HTMLInputElement>(null)
@@ -192,10 +202,12 @@ export function ProviderDialog({ provider, onClose, onError }: ProviderDialogPro
         preset,
         name,
         baseUrl: found ? found.baseUrl : '',
+        anthropicBaseUrl: '',
         quotaAdapter: found ? found.quotaAdapter : 'none'
       }
     })
     clearError('baseUrl')
+    clearError('anthropicBaseUrl')
     clearError('name')
     setTestResult(null)
   }
@@ -205,6 +217,8 @@ export function ProviderDialog({ provider, onClose, onError }: ProviderDialogPro
     if (!form.name.trim()) next.name = '请输入供应商名称'
     const urlError = baseUrlError(form.baseUrl)
     if (urlError) next.baseUrl = urlError
+    const anthropicError = optionalBaseUrlError(form.anthropicBaseUrl)
+    if (anthropicError) next.anthropicBaseUrl = anthropicError
     if (!editing && !form.apiKey.trim()) next.apiKey = '新建供应商时必须填写 API Key'
     if (parseNonNegative(form.lowBalance) === null) next.lowBalance = '请输入不小于 0 的数字'
     if (parseNonNegative(form.cooldownHours) === null) next.cooldown = '请输入不小于 0 的小时数'
@@ -214,6 +228,7 @@ export function ProviderDialog({ provider, onClose, onError }: ProviderDialogPro
   function focusFirstError(nextErrors: FieldErrors) {
     if (nextErrors.name) nameRef.current?.focus()
     else if (nextErrors.baseUrl) baseUrlRef.current?.focus()
+    else if (nextErrors.anthropicBaseUrl) anthropicBaseUrlRef.current?.focus()
     else if (nextErrors.apiKey) apiKeyRef.current?.focus()
     else if (nextErrors.lowBalance) lowBalanceRef.current?.focus()
     else if (nextErrors.cooldown) cooldownRef.current?.focus()
@@ -235,6 +250,8 @@ export function ProviderDialog({ provider, onClose, onError }: ProviderDialogPro
       const patch: ProviderPatch = {
         name: input.name,
         baseUrl: input.baseUrl,
+        // 传空串表示清除专属地址，回退到预设推导 / Base URL。
+        anthropicBaseUrl: input.anthropicBaseUrl ?? '',
         quotaAdapter: input.quotaAdapter,
         quota: input.quota,
         manualModels: input.manualModels
@@ -258,10 +275,16 @@ export function ProviderDialog({ provider, onClose, onError }: ProviderDialogPro
       baseUrlRef.current?.focus()
       return
     }
+    const anthropicError = optionalBaseUrlError(form.anthropicBaseUrl)
+    if (anthropicError) {
+      setErrors((previous) => ({ ...previous, anthropicBaseUrl: anthropicError }))
+      anthropicBaseUrlRef.current?.focus()
+      return
+    }
     setErrors((previous) => {
-      if (!('baseUrl' in previous)) return previous
       const next = { ...previous }
       delete next.baseUrl
+      delete next.anthropicBaseUrl
       return next
     })
     setTesting(true)
@@ -373,6 +396,32 @@ export function ProviderDialog({ provider, onClose, onError }: ProviderDialogPro
               {errors.baseUrl && (
                 <p id={`${titleId}-base-url-error`} className={ERROR_CLASS}>
                   {errors.baseUrl}
+                </p>
+              )}
+            </div>
+
+            <div>
+              <label htmlFor={`${titleId}-anthropic-base-url`} className={LABEL_CLASS}>
+                Anthropic Base URL
+              </label>
+              <input
+                id={`${titleId}-anthropic-base-url`}
+                ref={anthropicBaseUrlRef}
+                type="url"
+                value={form.anthropicBaseUrl}
+                onChange={(event) => updateField('anthropicBaseUrl', event.target.value, 'anthropicBaseUrl')}
+                aria-invalid={errors.anthropicBaseUrl ? true : undefined}
+                aria-describedby={`${titleId}-anthropic-base-url-hint${errors.anthropicBaseUrl ? ` ${titleId}-anthropic-base-url-error` : ''}`}
+                placeholder={defaultAnthropicBaseUrl(form.preset, form.baseUrl) || '留空则与 Base URL 相同'}
+                spellCheck={false}
+                className={`${INPUT_CLASS} ${errors.anthropicBaseUrl ? INPUT_ERROR_CLASS : ''}`}
+              />
+              <p id={`${titleId}-anthropic-base-url-hint`} className={HINT_CLASS}>
+                Claude 格式请求使用的地址（含版本路径）。留空时 DeepSeek 官方域名自动使用 /anthropic/v1，其它供应商与 Base URL 相同。
+              </p>
+              {errors.anthropicBaseUrl && (
+                <p id={`${titleId}-anthropic-base-url-error`} className={ERROR_CLASS}>
+                  {errors.anthropicBaseUrl}
                 </p>
               )}
             </div>

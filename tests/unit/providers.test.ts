@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { PROVIDER_PRESETS, createProviderFromPreset, protocolSupported, upstreamExtraHeaders, upstreamProtocol } from '../../core/providers/presets'
+import { PROVIDER_PRESETS, anthropicBaseUrlFor, createProviderFromPreset, defaultAnthropicBaseUrl, protocolSupported, upstreamExtraHeaders, upstreamProtocol } from '../../core/providers/presets'
 import { buildCatalog, parseRequestedModel, providerSupports } from '../../core/providers/catalog'
 import { discoverModels } from '../../core/providers/discover'
 
@@ -14,6 +14,31 @@ describe('presets', () => {
     expect(provider.quotaAdapter).toBe('opencode-go')
     expect(provider.id).toBe('p1')
     expect(createProviderFromPreset('commandcode', 'p2').quotaAdapter).toBe('commandcode-usage')
+  })
+})
+
+describe('anthropic base url', () => {
+  it('derives the DeepSeek Anthropic base under /anthropic/v1', () => {
+    const deepseek = createProviderFromPreset('deepseek', 'd1')
+    expect(anthropicBaseUrlFor(deepseek)).toBe('https://api.deepseek.com/anthropic/v1')
+    expect(defaultAnthropicBaseUrl('deepseek', deepseek.baseUrl)).toBe('https://api.deepseek.com/anthropic/v1')
+  })
+
+  it('keeps OpenCode Go and CommandCode on the shared base', () => {
+    expect(anthropicBaseUrlFor(createProviderFromPreset('opencode-go', 'o1'))).toBe('https://opencode.ai/zen/go/v1')
+    expect(anthropicBaseUrlFor(createProviderFromPreset('commandcode', 'c1'))).toBe('https://api.commandcode.ai/provider/v1')
+    expect(defaultAnthropicBaseUrl('commandcode', 'https://api.commandcode.ai/provider/v1')).toBe('')
+  })
+
+  it('honours an explicit override and custom DeepSeek hosts', () => {
+    const custom = createProviderFromPreset('custom', 'x1')
+    custom.baseUrl = 'https://proxy.test/v1'
+    custom.anthropicBaseUrl = 'https://proxy.test/claude/v1/'
+    expect(anthropicBaseUrlFor(custom)).toBe('https://proxy.test/claude/v1')
+
+    const proxied = createProviderFromPreset('deepseek', 'd2')
+    proxied.baseUrl = 'https://proxy.test/deepseek/v1'
+    expect(anthropicBaseUrlFor(proxied)).toBe('https://proxy.test/deepseek/v1')
   })
 })
 

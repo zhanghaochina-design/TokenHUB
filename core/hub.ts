@@ -72,6 +72,11 @@ function validateBaseUrl(raw: string): string {
   return baseUrl
 }
 
+function validateOptionalBaseUrl(raw: string | undefined): string | undefined {
+  if (raw === undefined || !raw.trim()) return undefined
+  return validateBaseUrl(raw)
+}
+
 function normalizeModels(models: string[]): string[] {
   return [...new Set(models.map((model) => model.trim()).filter(Boolean))]
 }
@@ -227,6 +232,7 @@ export class Hub {
     const provider = createProviderFromPreset(input.preset)
     provider.name = name
     provider.baseUrl = baseUrl
+    provider.anthropicBaseUrl = validateOptionalBaseUrl(input.anthropicBaseUrl)
     if (input.quotaAdapter) provider.quotaAdapter = input.quotaAdapter
     if (input.quota) provider.quota = { ...provider.quota, ...input.quota }
     if (input.manualModels) provider.models.manual = normalizeModels(input.manualModels)
@@ -251,12 +257,14 @@ export class Hub {
     const nextName = patch.name === undefined ? undefined : patch.name.trim()
     if (nextName !== undefined && !nextName) throw new Error('provider name is required')
     const nextBaseUrl = patch.baseUrl === undefined ? undefined : validateBaseUrl(patch.baseUrl)
+    const nextAnthropicBaseUrl = patch.anthropicBaseUrl === undefined ? undefined : validateOptionalBaseUrl(patch.anthropicBaseUrl)
     let discover = false
     if (nextName !== undefined) provider.name = nextName
     if (nextBaseUrl !== undefined) {
       if (nextBaseUrl !== provider.baseUrl) discover = true
       provider.baseUrl = nextBaseUrl
     }
+    if (patch.anthropicBaseUrl !== undefined) provider.anthropicBaseUrl = nextAnthropicBaseUrl
     if (patch.apiKey !== undefined && patch.apiKey.trim()) {
       await this.secrets.setProviderKey(id, patch.apiKey.trim())
       // 旧 Key 导致的 auth_error 必须随新 Key 一起清除，否则只能等手动 reset。

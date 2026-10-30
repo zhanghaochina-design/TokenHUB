@@ -16,14 +16,41 @@ export const PROVIDER_PRESETS: PresetDefinition[] = [
 
 type SupportState = Pick<ModelProtocolSupport, 'anthropic' | 'openai'>
 
-// 没有扫描数据时的预设默认：CommandCode 按模型只提供一个形状；OpenCode Go 两个入口都可用；
+// 没有扫描数据时的预设默认：CommandCode 按模型只提供一个形状；OpenCode Go 与 DeepSeek 两端都可用；
 // 其它预设只对 Chat 做保证，Anthropic 入口需先扫描确认。
 function defaultProtocolSupport(preset: Preset, model: string): SupportState {
   if (preset === 'commandcode') {
     return /^claude/i.test(model) ? { anthropic: true, openai: false } : { anthropic: false, openai: true }
   }
-  if (preset === 'opencode-go') return { anthropic: true, openai: true }
+  if (preset === 'opencode-go' || preset === 'deepseek') return { anthropic: true, openai: true }
   return { anthropic: false, openai: true }
+}
+
+function deepseekAnthropicBase(baseUrl: string): string | null {
+  try {
+    const url = new URL(baseUrl)
+    if (!/(^|\.)deepseek\.com$/i.test(url.hostname)) return null
+    return `${url.origin}/anthropic/v1`
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Anthropic messages 的 base（含版本路径）。DeepSeek 官方把 Anthropic 入口放在 /anthropic 下，
+ * 与 OpenAI 的 /v1 不同；显式配置优先，其余预设与 OpenAI 共用 baseUrl。
+ */
+export function anthropicBaseUrlFor(provider: Pick<ProviderConfig, 'preset' | 'baseUrl' | 'anthropicBaseUrl'>): string {
+  const explicit = provider.anthropicBaseUrl?.trim()
+  if (explicit) return explicit.replace(/\/+$/, '')
+  const baseUrl = provider.baseUrl.trim().replace(/\/+$/, '')
+  if (provider.preset === 'deepseek') return deepseekAnthropicBase(baseUrl) ?? baseUrl
+  return baseUrl
+}
+
+/** 表单占位提示：留空时实际会使用的 Anthropic base；空串表示与 Base URL 相同。 */
+export function defaultAnthropicBaseUrl(preset: Preset, baseUrl: string): string {
+  return preset === 'deepseek' ? (deepseekAnthropicBase(baseUrl.trim().replace(/\/+$/, '')) ?? '') : ''
 }
 
 /** 能力表未覆盖时回退到预设默认；null 表示无法判定。 */

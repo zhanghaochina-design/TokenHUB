@@ -37,6 +37,8 @@ export interface ProviderConfig {
   name: string
   preset: Preset
   baseUrl: string
+  // Anthropic messages 专用 base（含版本路径）；缺省时按预设推导，DeepSeek 官方为 /anthropic/v1。
+  anthropicBaseUrl?: string
   quotaAdapter: QuotaAdapterId
   enabled: boolean
   models: { cached: string[]; manual: string[]; lastSyncedAt: string | null }

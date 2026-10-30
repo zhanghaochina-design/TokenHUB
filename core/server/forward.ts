@@ -2,6 +2,7 @@ import { Agent, fetch as undiciFetch } from 'undici'
 import type { ProviderConfig, UpstreamFailure } from '../types'
 import { classifyUpstreamResponse } from '../errors'
 import { CONNECT_TIMEOUT_MS, FIRST_BYTE_TIMEOUT_MS, STREAM_IDLE_TIMEOUT_MS } from '../appInfo'
+import { anthropicBaseUrlFor } from '../providers/presets'
 
 export type FetchFn = typeof undiciFetch
 
@@ -115,7 +116,7 @@ export async function forwardAnthropic(options: ForwardAnthropicOptions): Promis
 
   let response: Response
   try {
-    response = await fetchFn(`${provider.baseUrl.replace(/\/+$/, '')}/messages`, {
+    response = await fetchFn(`${anthropicBaseUrlFor(provider)}/messages`, {
       method: 'POST',
       headers,
       body: JSON.stringify(payload),

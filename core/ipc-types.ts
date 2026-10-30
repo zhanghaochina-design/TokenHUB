@@ -4,6 +4,7 @@ export interface ProviderInput {
   preset: Preset
   name: string
   baseUrl: string
+  anthropicBaseUrl?: string
   apiKey: string
   // 省略时沿用预设自带的适配器（Task 10 测试与预设页都不必重复填写）。
   quotaAdapter?: QuotaAdapterId
@@ -14,6 +15,7 @@ export interface ProviderInput {
 export interface ProviderPatch {
   name?: string
   baseUrl?: string
+  anthropicBaseUrl?: string
   apiKey?: string
   quotaAdapter?: QuotaAdapterId
   quota?: Partial<ProviderConfig['quota']>

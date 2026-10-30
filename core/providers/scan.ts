@@ -1,4 +1,4 @@
-import { upstreamExtraHeaders } from './presets'
+import { anthropicBaseUrlFor, upstreamExtraHeaders } from './presets'
 import type { ProtocolScanRow, ProviderConfig } from '../types'
 
 export interface ScanOptions {
@@ -72,7 +72,8 @@ export async function scanProviderProtocols(options: ScanOptions): Promise<ScanO
 
   const fetchFn = options.fetchFn ?? fetch
   const now = options.now ?? (() => new Date())
-  const base = options.provider.baseUrl.replace(/\/+$/, '')
+  const openaiBase = options.provider.baseUrl.replace(/\/+$/, '')
+  const anthropicBase = anthropicBaseUrlFor(options.provider)
   const extra = upstreamExtraHeaders(options.provider, crypto.randomUUID())
   const anthropicHeaders = {
     'x-api-key': options.apiKey,
@@ -98,8 +99,8 @@ export async function scanProviderProtocols(options: ScanOptions): Promise<ScanO
     while (queue.length > 0 && stopReason === null) {
       const model = queue.shift()!
       const body = { model, max_tokens: PROBE_MAX_TOKENS, messages: [{ role: 'user', content: 'Reply with OK.' }] }
-      const anthropic = await probe(`${base}/messages`, anthropicHeaders, body, fetchFn)
-      const openai = await probe(`${base}/chat/completions`, openaiHeaders, body, fetchFn)
+      const anthropic = await probe(`${anthropicBase}/messages`, anthropicHeaders, body, fetchFn)
+      const openai = await probe(`${openaiBase}/chat/completions`, openaiHeaders, body, fetchFn)
 
       const keyRejected = (state: EndpointState): boolean => state.status === 401
       if (keyRejected(anthropic) && keyRejected(openai)) {

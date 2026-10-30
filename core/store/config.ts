@@ -91,6 +91,10 @@ function normalizeProvider(raw: unknown): ProviderConfig {
     name: String(p.name ?? 'Unnamed'),
     preset: p.preset ?? 'custom',
     baseUrl: String(p.baseUrl ?? '').replace(/\/+$/, ''),
+    anthropicBaseUrl:
+      typeof p.anthropicBaseUrl === 'string' && p.anthropicBaseUrl.trim()
+        ? p.anthropicBaseUrl.trim().replace(/\/+$/, '')
+        : undefined,
     quotaAdapter: p.quotaAdapter ?? 'none',
     enabled: p.enabled !== false,
     models: {

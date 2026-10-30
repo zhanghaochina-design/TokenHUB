@@ -14,6 +14,8 @@ interface ProviderSpec {
   id: string
   models: string[]
   support?: Record<string, ModelProtocolSupport>
+  // 相对假上游的 Anthropic 专用 base，用于验证 anthropicBaseUrl 覆盖。
+  anthropicBasePath?: string
 }
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -73,6 +75,7 @@ describe('protocol routing', () => {
       p.baseUrl = `${upstream.url}/${spec.id}/v1`
       p.models.cached = spec.models
       if (spec.support) p.protocolSupport = spec.support
+      if (spec.anthropicBasePath) p.anthropicBaseUrl = `${upstream.url}${spec.anthropicBasePath}`
       return p
     })
     const runtime = new RuntimeStore()
@@ -116,6 +119,20 @@ describe('protocol routing', () => {
     system: [{ type: 'text', text: 'Be terse.', cache_control: { type: 'ephemeral' } }],
     messages: [{ role: 'user', content: [{ type: 'text', text: 'ping', cache_control: { type: 'ephemeral' } }] }]
   }
+
+  it('uses a dedicated Anthropic base when the provider defines one', async () => {
+    const { port } = await boot(() => ({ status: 200, body: JSON.stringify(anthropicResponse) }), [
+      { preset: 'deepseek', id: 'ds', models: ['deepseek-flash'], anthropicBasePath: '/ds-anthropic/v1' }
+    ])
+    const res = await post(
+      port,
+      '/v1/messages',
+      { model: 'deepseek-flash', max_tokens: 32, messages: [{ role: 'user', content: 'ping' }] },
+      { 'anthropic-version': '2023-06-01' }
+    )
+    expect(res.status).toBe(200)
+    expect(requests[0].path).toBe('/ds-anthropic/v1/messages')
+  })
 
   it('passes anthropic traffic straight to /messages when both sides use the same shape', async () => {
     const { port } = await boot(

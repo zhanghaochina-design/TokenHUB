@@ -47,6 +47,18 @@ describe('scanProviderProtocols', () => {
     expect(progress).toEqual([[1, 3], [2, 3], [3, 3]])
   })
 
+  it('probes DeepSeek Anthropic traffic under /anthropic/v1', async () => {
+    const urls: string[] = []
+    const fetchFn = async (url: string) => {
+      urls.push(String(url))
+      return response(200, '{}')
+    }
+    const deepseek = createProviderFromPreset('deepseek', 'd1')
+    await scanProviderProtocols({ provider: deepseek, apiKey: 'k', models: ['deepseek-flash'], fetchFn, concurrency: 1 })
+    expect(urls).toContain('https://api.deepseek.com/anthropic/v1/messages')
+    expect(urls).toContain('https://api.deepseek.com/v1/chat/completions')
+  })
+
   it('stops early only when both endpoints reject the key with 401', async () => {
     let calls = 0
     const fetchFn = async () => {

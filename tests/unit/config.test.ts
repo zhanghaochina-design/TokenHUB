@@ -63,6 +63,17 @@ describe('config store', () => {
     })
   })
 
+  it('normalizes the optional Anthropic base url', () => {
+    const cfg = normalizeConfig({
+      providers: [
+        { id: 'p1', name: 'P1', preset: 'custom', baseUrl: 'https://p1.example/v1', anthropicBaseUrl: ' https://p1.example/claude/v1/ ' },
+        { id: 'p2', name: 'P2', preset: 'custom', baseUrl: 'https://p2.example/v1', anthropicBaseUrl: '   ' }
+      ]
+    })
+    expect(cfg.providers[0].anthropicBaseUrl).toBe('https://p1.example/claude/v1')
+    expect(cfg.providers[1].anthropicBaseUrl).toBeUndefined()
+  })
+
   it('round-trips provider order', async () => {
     const dir = await tempDir()
     const cfg = defaultConfig()
