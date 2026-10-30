@@ -1,0 +1,1249 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TokenHUB · 本地多供应商大模型路由</title>
+<meta name="description" content="TokenHUB 是运行在 Windows 桌面的本地 API 网关：把多个大模型供应商统一成 OpenAI 与 Anthropic 兼容端点，按优先级路由、额度耗尽自动切换，Key 只留在本机。">
+<style>
+  :root{
+    --canvas:#f7f7f5;
+    --surface:#ffffff;
+    --line:#e5e5e0;
+    --line-soft:#efefea;
+    --ink:#1f2328;
+    --muted:#5b626c;
+    --accent:#2563eb;
+    --accent-strong:#1d4ed8;
+    --accent-soft:#eff6ff;
+    --ok:#047857;
+    --ok-soft:#ecfdf5;
+    --warn:#92400e;
+    --warn-soft:#fffbeb;
+    --danger:#b91c1c;
+    --danger-soft:#fef2f2;
+    --radius:16px;
+    --shadow:0 1px 2px rgba(16,24,40,.04),0 16px 40px -20px rgba(16,24,40,.22);
+    --sans:"Segoe UI","Microsoft YaHei UI","Microsoft YaHei",system-ui,-apple-system,sans-serif;
+    --mono:"Cascadia Code","SFMono-Regular",Consolas,"Liberation Mono",monospace;
+    --max:1180px;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0;
+    background:var(--canvas);
+    color:var(--ink);
+    font-family:var(--sans);
+    font-size:16px;
+    line-height:1.65;
+    -webkit-font-smoothing:antialiased;
+    text-rendering:optimizeLegibility;
+  }
+  img{max-width:100%}
+  a{color:var(--accent-strong);text-decoration:none}
+  a:hover{text-decoration:underline;text-underline-offset:3px}
+  :focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+  ::selection{background:rgba(37,99,235,.16)}
+  .wrap{width:min(calc(100% - 48px),var(--max));margin-inline:auto}
+  .skip{position:absolute;left:-9999px;top:0;background:#fff;padding:8px 12px;z-index:100}
+  .skip:focus{left:12px;top:12px}
+
+  /* ---------- top bar ---------- */
+  .topbar{
+    position:sticky;top:0;z-index:50;
+    background:rgba(247,247,245,.84);
+    border-bottom:1px solid rgba(229,229,224,.85);
+    backdrop-filter:blur(14px);
+    -webkit-backdrop-filter:blur(14px);
+  }
+  .topbar .wrap{display:flex;align-items:center;gap:22px;height:64px}
+  .brand{display:flex;align-items:center;gap:10px;color:var(--ink);font-weight:650;letter-spacing:-.01em}
+  .brand:hover{text-decoration:none}
+  .brand-mark{
+    width:32px;height:32px;border-radius:9px;display:grid;place-items:center;color:#fff;
+    background:var(--accent);box-shadow:0 6px 16px -6px rgba(37,99,235,.65);
+  }
+  .brand-name{font-size:14px;line-height:1.15}
+  .brand-name small{display:block;font-size:11px;font-weight:400;color:var(--muted);letter-spacing:0}
+  .nav{display:flex;align-items:center;gap:2px;margin-left:auto}
+  .nav a{
+    padding:7px 10px;border-radius:8px;color:var(--muted);font-size:13px;font-weight:500;
+    transition:background .15s,color .15s;
+  }
+  .nav a:hover{background:#fff;color:var(--ink);text-decoration:none}
+  .nav a.active{background:var(--accent-soft);color:var(--accent-strong)}
+  .version{
+    flex:none;font-size:11px;color:var(--muted);border:1px solid var(--line);
+    background:#fff;border-radius:999px;padding:3px 9px;font-variant-numeric:tabular-nums;
+  }
+
+  /* ---------- hero ---------- */
+  .hero{position:relative;overflow:hidden;padding:74px 0 34px;text-align:center}
+  .hero::before{
+    content:"";position:absolute;inset:-220px 0 auto;height:620px;pointer-events:none;
+    background:
+      radial-gradient(560px 300px at 50% 55%,rgba(37,99,235,.14),transparent 70%),
+      radial-gradient(420px 240px at 18% 35%,rgba(14,165,233,.10),transparent 70%),
+      radial-gradient(420px 240px at 82% 35%,rgba(99,102,241,.10),transparent 70%);
+  }
+  .hero::after{
+    content:"";position:absolute;inset:0;pointer-events:none;opacity:.5;
+    background-image:linear-gradient(rgba(148,163,184,.12) 1px,transparent 1px),linear-gradient(90deg,rgba(148,163,184,.12) 1px,transparent 1px);
+    background-size:44px 44px;
+    -webkit-mask-image:radial-gradient(600px 360px at 50% 18%,#000 20%,transparent 75%);
+    mask-image:radial-gradient(600px 360px at 50% 18%,#000 20%,transparent 75%);
+  }
+  .hero .wrap{position:relative;z-index:1}
+  .eyebrow-pill{
+    display:inline-flex;align-items:center;gap:8px;
+    border:1px solid rgba(37,99,235,.22);background:rgba(255,255,255,.8);
+    color:var(--accent-strong);border-radius:999px;padding:5px 12px;
+    font-size:11.5px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;
+    box-shadow:0 1px 2px rgba(16,24,40,.04);
+  }
+  .eyebrow-pill i{width:6px;height:6px;border-radius:50%;background:#22c55e;box-shadow:0 0 0 3px rgba(34,197,94,.14)}
+  h1{
+    margin:20px auto 0;max-width:920px;
+    font-size:clamp(34px,5.2vw,58px);line-height:1.08;letter-spacing:-.035em;font-weight:700;
+  }
+  h1 .accent{
+    white-space:nowrap;
+    background:linear-gradient(92deg,#1d4ed8 0%,#2563eb 48%,#0891b2 100%);
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+  }
+  .hero-break{display:none}
+  @media (min-width:760px){.hero-break{display:block}}
+  .hero .lead{
+    margin:20px auto 0;max-width:760px;color:var(--muted);
+    font-size:clamp(15px,1.6vw,18px);line-height:1.7;
+  }
+  .hero-actions{display:flex;justify-content:center;flex-wrap:wrap;gap:12px;margin-top:28px}
+  .btn{
+    display:inline-flex;align-items:center;justify-content:center;gap:8px;
+    height:44px;padding:0 20px;border-radius:10px;font-size:14px;font-weight:600;
+    border:1px solid transparent;transition:transform .15s,box-shadow .15s,background .15s;
+  }
+  .btn:hover{text-decoration:none;transform:translateY(-1px)}
+  .btn-primary{background:var(--accent);color:#fff;box-shadow:0 10px 24px -10px rgba(37,99,235,.75)}
+  .btn-primary:hover{background:var(--accent-strong)}
+  .btn-ghost{background:#fff;border-color:var(--line);color:var(--ink);box-shadow:0 1px 2px rgba(16,24,40,.04)}
+  .hero-meta{display:flex;justify-content:center;flex-wrap:wrap;gap:8px 14px;margin-top:22px;color:var(--muted);font-size:12px}
+  .hero-meta span{display:inline-flex;align-items:center;gap:7px}
+  .hero-meta span::before{content:"";width:4px;height:4px;border-radius:50%;background:#cbd5e1}
+  .hero-shot{
+    margin:44px auto 0;max-width:1168px;padding:10px;border-radius:22px;
+    background:linear-gradient(180deg,rgba(37,99,235,.10),rgba(37,99,235,.015));
+    border:1px solid rgba(37,99,235,.12);
+  }
+
+  /* ---------- stats ---------- */
+  .stats{
+    display:grid;grid-template-columns:repeat(4,1fr);gap:1px;
+    margin-top:34px;background:var(--line);border:1px solid var(--line);
+    border-radius:16px;overflow:hidden;box-shadow:0 1px 2px rgba(16,24,40,.03);
+  }
+  .stat{background:#fff;padding:18px 22px;text-align:left}
+  .stat strong{display:block;font-size:25px;line-height:1.2;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+  .stat span{display:block;margin-top:4px;font-size:12px;color:var(--muted)}
+
+  /* ---------- sections ---------- */
+  .block{padding:72px 0;border-top:1px solid var(--line-soft)}
+  section[id]{scroll-margin-top:84px}
+  .section-head{max-width:780px;margin:0 auto 34px;text-align:center}
+  .eyebrow{
+    margin:0;font-size:11.5px;font-weight:650;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--accent-strong);
+  }
+  h2{margin:10px 0 0;font-size:clamp(26px,3.1vw,36px);line-height:1.2;letter-spacing:-.025em}
+  .section-head .lead{margin:14px 0 0;color:var(--muted);font-size:16px;line-height:1.7}
+  .subhead{font-size:15px;font-weight:650;margin:0 0 10px}
+  .prose{color:var(--muted);font-size:14.5px;line-height:1.75}
+  .prose p{margin:0 0 12px}
+  .prose p:last-child{margin-bottom:0}
+  .prose strong{color:var(--ink);font-weight:600}
+
+  .mini-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin:26px 0 30px}
+  .mini{background:#fff;border:1px solid var(--line);border-radius:13px;padding:17px 19px}
+  .mini h3{margin:0 0 5px;font-size:14px;letter-spacing:-.01em}
+  .mini p{margin:0;color:var(--muted);font-size:13px;line-height:1.65}
+
+  /* ---------- feature cards ---------- */
+  .feature-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+  .feature{
+    background:#fff;border:1px solid var(--line);border-radius:14px;padding:20px;
+    transition:transform .18s,box-shadow .18s,border-color .18s;
+  }
+  .feature:hover{transform:translateY(-2px);box-shadow:var(--shadow);border-color:#d9d9d2}
+  .icon{
+    width:38px;height:38px;border-radius:10px;display:grid;place-items:center;
+    background:var(--accent-soft);color:var(--accent-strong);margin-bottom:13px;
+  }
+  .icon svg{width:19px;height:19px}
+  .feature h3{margin:0 0 6px;font-size:14.5px;letter-spacing:-.01em}
+  .feature p{margin:0;color:var(--muted);font-size:13px;line-height:1.66}
+
+  /* ---------- figures ---------- */
+  figure.shot{
+    margin:0;background:#fff;border:1px solid var(--line);border-radius:var(--radius);
+    overflow:hidden;box-shadow:var(--shadow);
+  }
+  figure.shot img{display:block;width:100%;height:auto;cursor:zoom-in;background:#fff}
+  .caption{
+    display:flex;align-items:flex-start;justify-content:space-between;gap:14px;
+    padding:11px 15px;border-top:1px solid var(--line);
+    background:#fcfcfb;color:var(--muted);font-size:12px;line-height:1.55;
+  }
+  .caption .pill{
+    flex:none;border:1px solid #dbeafe;background:#eff6ff;color:#1e40af;
+    border-radius:999px;padding:1px 8px;font-size:10.5px;font-weight:600;letter-spacing:.02em;
+  }
+  .figure-stack{display:grid;gap:22px;margin-top:28px}
+  .figure-stack figure.shot{max-width:100%}
+  .figure-split{display:grid;grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr);gap:30px;align-items:start;margin-top:28px}
+  .figure-split figure.shot{position:sticky;top:88px}
+  .bullet-list{display:grid;gap:14px;margin:0;padding:0;list-style:none}
+  .bullet-list li{display:flex;gap:11px;background:#fff;border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+  .bullet-list .dot{flex:none;width:22px;height:22px;border-radius:50%;background:var(--accent-soft);color:var(--accent-strong);display:grid;place-items:center;margin-top:1px}
+  .bullet-list h3{margin:0 0 3px;font-size:13.5px}
+  .bullet-list p{margin:0;color:var(--muted);font-size:12.8px;line-height:1.62}
+
+  .callout{
+    display:flex;gap:11px;align-items:flex-start;
+    margin-top:20px;padding:14px 16px;border-radius:12px;
+    background:var(--accent-soft);border:1px solid #bfdbfe;color:#1e3a8a;
+    font-size:13.2px;line-height:1.65;
+  }
+  .callout svg{flex:none;width:17px;height:17px;margin-top:2px}
+  .callout strong{color:#1e3a8a}
+
+  /* ---------- diagram ---------- */
+  .diagram{
+    background:#fff;border:1px solid var(--line);border-radius:var(--radius);
+    padding:20px 20px 12px;box-shadow:var(--shadow);overflow-x:auto;
+  }
+  .diagram svg{display:block;width:100%;height:auto;min-width:840px}
+  .diagram svg text{font-family:var(--sans)}
+  .diagram-note{text-align:center;color:var(--muted);font-size:12px;margin:12px 4px 4px}
+  .mobile-hint{display:none}
+  .steps{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:24px}
+  .step{background:#fff;border:1px solid var(--line);border-radius:13px;padding:18px 19px}
+  .step b{display:inline-grid;place-items:center;width:24px;height:24px;border-radius:50%;background:var(--accent-soft);color:var(--accent-strong);font-size:12px;margin-bottom:9px}
+  .step h3{margin:0 0 5px;font-size:13.8px}
+  .step p{margin:0;color:var(--muted);font-size:12.8px;line-height:1.65}
+
+  /* ---------- tables ---------- */
+  .table-wrap{border:1px solid var(--line);border-radius:14px;background:#fff;overflow-x:auto;box-shadow:0 1px 2px rgba(16,24,40,.03)}
+  table{border-collapse:collapse;width:100%;min-width:760px;font-size:13.2px}
+  th,td{text-align:left;padding:12px 16px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{background:#fafaf8;color:var(--muted);font-size:11.5px;font-weight:600;letter-spacing:.02em;white-space:nowrap}
+  tbody tr:last-child td{border-bottom:0}
+  tbody tr:hover td{background:#fcfcfb}
+  td strong{font-weight:600}
+  .badge{
+    display:inline-flex;align-items:center;gap:5px;border-radius:999px;padding:2px 8px;
+    font-size:11px;font-weight:600;border:1px solid;white-space:nowrap;
+  }
+  .badge.ok{color:var(--ok);background:var(--ok-soft);border-color:#a7f3d0}
+  .badge.warn{color:var(--warn);background:var(--warn-soft);border-color:#fde68a}
+  .badge.danger{color:var(--danger);background:var(--danger-soft);border-color:#fecaca}
+  .badge.neutral{color:#475569;background:#f8fafc;border-color:#e2e8f0}
+  .mono{font-family:var(--mono);font-size:.94em}
+
+  /* ---------- quick start ---------- */
+  .start-wrap{max-width:920px;margin:0 auto}
+  .step-list{display:grid;gap:14px}
+  .step-item{
+    display:grid;grid-template-columns:44px minmax(0,1fr);gap:16px;
+    background:#fff;border:1px solid var(--line);border-radius:14px;padding:20px 22px;
+  }
+  .step-no{
+    width:34px;height:34px;border-radius:50%;display:grid;place-items:center;
+    background:var(--accent-soft);color:var(--accent-strong);font-weight:700;font-size:13px;
+  }
+  .step-item h3{margin:0 0 5px;font-size:15px}
+  .step-item > div > p{margin:0;color:var(--muted);font-size:13.4px;line-height:1.68}
+  .step-item p + p{margin-top:8px}
+  .code-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px}
+  .code-grid.single{grid-template-columns:1fr}
+  .code-block{min-width:0}
+  .code-label{font-size:11.5px;font-weight:600;color:var(--muted);margin:0 0 6px;letter-spacing:.02em}
+  .code{position:relative;background:#0f172a;border:1px solid #1e293b;border-radius:11px;overflow:hidden}
+  .code pre{margin:0;padding:14px 42px 14px 16px;overflow-x:auto;color:#e2e8f0;font-family:var(--mono);font-size:12.3px;line-height:1.7}
+  .code code{font-family:inherit}
+  .code .c{color:#94a3b8}
+  .code .copy{
+    position:absolute;top:8px;right:8px;height:24px;padding:0 8px;border-radius:6px;
+    border:1px solid #334155;background:#1e293b;color:#cbd5e1;font-size:10.5px;
+    font-family:var(--sans);cursor:pointer;
+  }
+  .code .copy:hover{background:#334155;color:#fff}
+
+  /* ---------- security ---------- */
+  .security-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .security-item{display:flex;gap:11px;background:#fff;border:1px solid var(--line);border-radius:12px;padding:15px 17px}
+  .check{flex:none;width:22px;height:22px;border-radius:50%;display:grid;place-items:center;background:var(--ok-soft);color:var(--ok);margin-top:2px}
+  .check svg{width:12px;height:12px}
+  .security-item h3{margin:0 0 3px;font-size:13.5px}
+  .security-item p{margin:0;color:var(--muted);font-size:12.7px;line-height:1.62}
+
+  /* ---------- faq ---------- */
+  .faq{max-width:880px;margin:0 auto;display:grid;gap:10px}
+  details{background:#fff;border:1px solid var(--line);border-radius:12px;padding:0 18px}
+  details[open]{border-color:#d8d8d1;box-shadow:0 6px 18px -14px rgba(16,24,40,.25)}
+  summary{
+    list-style:none;cursor:pointer;padding:15px 0;display:flex;align-items:center;justify-content:space-between;gap:18px;
+    font-size:14px;font-weight:600;
+  }
+  summary::-webkit-details-marker{display:none}
+  summary::after{content:"+";flex:none;color:var(--muted);font-size:18px;font-weight:400;line-height:1}
+  details[open] summary::after{content:"−"}
+  details p{margin:0 0 15px;color:var(--muted);font-size:13.3px;line-height:1.72}
+
+  /* ---------- limits ---------- */
+  .limits{display:grid;grid-template-columns:1fr 1fr;gap:12px;max-width:980px;margin:0 auto}
+  .limit{display:flex;gap:10px;background:#fff;border:1px solid var(--line);border-radius:12px;padding:14px 16px;font-size:13px;color:var(--muted)}
+  .limit b{color:var(--ink);font-weight:600}
+
+  /* ---------- footer ---------- */
+  footer{margin-top:76px;border-top:1px solid var(--line);background:#fff;padding:30px 0}
+  .footer-inner{display:flex;align-items:center;justify-content:space-between;gap:18px;flex-wrap:wrap}
+  .footer-brand{display:flex;align-items:center;gap:10px;color:var(--ink);font-weight:600;font-size:13px}
+  .footer-brand .brand-mark{width:26px;height:26px;border-radius:7px}
+  .footer-meta{color:var(--muted);font-size:12px;line-height:1.7}
+
+  /* ---------- lightbox ---------- */
+  dialog#lightbox{border:0;padding:0;background:transparent;max-width:min(96vw,1400px);max-height:94vh}
+  dialog#lightbox::backdrop{background:rgba(15,23,42,.8);backdrop-filter:blur(4px)}
+  dialog#lightbox img{display:block;max-width:96vw;max-height:86vh;width:auto;height:auto;border-radius:10px;background:#fff;box-shadow:0 30px 80px -20px rgba(0,0,0,.6)}
+  dialog#lightbox .hint{color:#cbd5e1;font-size:12px;text-align:center;margin:10px 0 0}
+
+  /* ---------- responsive ---------- */
+  @media (max-width:1080px){
+    .nav a{padding:7px 8px;font-size:12.5px}
+    .feature-grid{grid-template-columns:repeat(2,1fr)}
+    .figure-split{grid-template-columns:1fr}
+    .figure-split figure.shot{position:static;max-width:640px}
+  }
+  @media (max-width:900px){
+    .nav{display:none}
+    .hero{padding-top:54px}
+    .block{padding:52px 0}
+    .stats{grid-template-columns:repeat(2,1fr)}
+    .mini-grid,.steps{grid-template-columns:1fr}
+    .code-grid{grid-template-columns:1fr}
+    .security-grid,.limits{grid-template-columns:1fr}
+    .wrap{width:min(calc(100% - 32px),var(--max))}
+    .figure-stack{gap:16px}
+    .caption{flex-direction:column;gap:4px}
+    .mobile-hint{display:block;text-align:center;color:var(--muted);font-size:11.5px;margin:10px 0 0}
+  }
+  @media (max-width:560px){
+    .hero-actions .btn{width:100%}
+    .feature-grid{grid-template-columns:1fr}
+    .step-item{grid-template-columns:1fr;gap:10px}
+    .step-no{width:28px;height:28px}
+  }
+  @media (prefers-reduced-motion:reduce){
+    html{scroll-behavior:auto}
+    .feature:hover,.btn:hover{transform:none}
+  }
+  @media print{
+    .topbar,.hero-actions,.code .copy,dialog#lightbox{display:none!important}
+    body{background:#fff}
+    .block{padding:28px 0;break-inside:avoid}
+    figure.shot{box-shadow:none}
+  }
+</style>
+</head>
+<body>
+<a class="skip" href="#main">跳到正文</a>
+
+<header class="topbar">
+  <div class="wrap">
+    <a class="brand" href="#top" aria-label="TokenHUB 首页">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="16" y="16" width="6" height="6" rx="1"></rect>
+          <rect x="2" y="16" width="6" height="6" rx="1"></rect>
+          <rect x="9" y="2" width="6" height="6" rx="1"></rect>
+          <path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3"></path>
+          <path d="M12 12V8"></path>
+        </svg>
+      </span>
+      <span class="brand-name">TokenHUB<small>多供应商路由</small></span>
+    </a>
+    <nav class="nav" aria-label="文档导航">
+      <a href="#how">工作原理</a>
+      <a href="#features">功能</a>
+      <a href="#overview">界面</a>
+      <a href="#routing">路由规则</a>
+      <a href="#start">快速上手</a>
+      <a href="#security">安全</a>
+      <a href="#faq">FAQ</a>
+    </nav>
+    <span class="version">v0.1.0</span>
+  </div>
+</header>
+
+<main id="main">
+  <span id="top"></span>
+
+  <section class="hero" aria-labelledby="hero-title">
+    <div class="wrap">
+      <span class="eyebrow-pill"><i aria-hidden="true"></i>Local-first · OpenAI + Anthropic</span>
+      <h1 id="hero-title">把多个大模型供应商，<span class="hero-break" aria-hidden="true"></span>变成一个<span class="accent">本地端点</span></h1>
+      <p class="lead">
+        TokenHUB 是运行在 Windows 桌面的本地 API 网关。它把 OpenCode Go、DeepSeek、CommandCode
+        与任意兼容服务合并到一个地址，按优先级路由、额度耗尽自动切换，并让 Claude Code
+        与 OpenAI 客户端共用同一套模型目录。
+      </p>
+      <div class="hero-actions">
+        <a class="btn btn-primary" href="#start">快速开始</a>
+        <a class="btn btn-ghost" href="#how">看看它如何工作</a>
+      </div>
+      <p class="hero-meta">
+        <span>Windows 桌面应用</span>
+        <span>仅监听 127.0.0.1</span>
+        <span>Key 不出本机</span>
+        <span>OpenAI &amp; Anthropic 双协议</span>
+      </p>
+
+      <div class="hero-shot">
+        <figure class="shot">
+          <img src="{{IMG_OVERVIEW}}" width="1440" height="900" alt="TokenHUB 概览页：服务状态、今日用量、供应商额度与最近请求" fetchpriority="high">
+          <figcaption class="caption">
+            <span>概览页：服务状态、今日用量、供应商额度与最近请求。截图使用演示数据与演示端口 18799。</span>
+            <span class="pill">演示数据</span>
+          </figcaption>
+        </figure>
+      </div>
+
+      <div class="stats" aria-label="TokenHUB 关键指标">
+        <div class="stat"><strong>2</strong><span>协议入口：OpenAI / Anthropic</span></div>
+        <div class="stat"><strong>3</strong><span>内置供应商预设</span></div>
+        <div class="stat"><strong>60s</strong><span>默认额度探测间隔</span></div>
+        <div class="stat"><strong>100%</strong><span>密钥保存在本机</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="why" aria-labelledby="why-title">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="eyebrow">Why a local gateway</p>
+        <h2 id="why-title">为什么需要一个本地网关？</h2>
+        <p class="lead">不是再做一个聊天客户端，而是把“用哪个供应商”这件事，从每个 Agent 的配置里收回来。</p>
+      </div>
+      <div class="mini-grid">
+        <div class="mini">
+          <h3>额度总在关键时刻用完</h3>
+          <p>多家订阅轮流耗尽，手动改 Key 和环境变量；切完还要重启客户端，正在跑的任务被迫中断。</p>
+        </div>
+        <div class="mini">
+          <h3>每个客户端一套配置</h3>
+          <p>Claude Code 要 Anthropic 地址，Cursor / Continue 要 OpenAI 地址；同一个模型在不同供应商还叫不同名字。</p>
+        </div>
+        <div class="mini">
+          <h3>出问题只能猜</h3>
+          <p>429、余额不足、Key 失效看起来都像“模型报错”，没有统一的失败原因、耗时和切换记录。</p>
+        </div>
+      </div>
+      <div class="callout">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 8h.01M11 12h1v4h1"></path></svg>
+        <div><strong>TokenHUB 把这些统一到一个本地地址：</strong>一个模型目录、一套优先级、一份请求历史。客户端不需要知道背后有几家供应商。</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="how" aria-labelledby="how-title">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="eyebrow">How it works</p>
+        <h2 id="how-title">请求只经过一个本地地址</h2>
+        <p class="lead">客户端以为自己在调用 OpenAI 或 Anthropic；TokenHUB 负责选供应商、换协议、处理失败。</p>
+      </div>
+
+      <div class="diagram">
+        <svg viewBox="0 0 1120 470" role="img" aria-labelledby="diagram-title diagram-desc">
+          <title id="diagram-title">TokenHUB 工作方式</title>
+          <desc id="diagram-desc">客户端通过本地 OpenAI 或 Anthropic 地址访问 TokenHUB，TokenHUB 按优先级路由到上游供应商，并在额度耗尽或失败时切换。</desc>
+          <defs>
+            <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="#94a3b8"></path>
+            </marker>
+            <filter id="cardShadow" x="-12%" y="-12%" width="124%" height="134%">
+              <feDropShadow dx="0" dy="6" stdDeviation="10" flood-color="#0f172a" flood-opacity="0.07"></feDropShadow>
+            </filter>
+          </defs>
+
+          <rect x="16" y="18" width="740" height="432" rx="18" fill="#f8faff" stroke="#dbeafe" stroke-dasharray="6 6"></rect>
+          <text x="38" y="44" font-size="12" fill="#64748b">你的电脑 · 仅监听 127.0.0.1</text>
+
+          <text x="38" y="74" font-size="12.5" font-weight="600" fill="#334155">客户端</text>
+          <text x="806" y="74" font-size="12.5" font-weight="600" fill="#334155">上游供应商</text>
+
+          <g>
+            <rect x="38" y="84" width="180" height="58" rx="10" fill="#fff" stroke="#e2e8f0"></rect>
+            <text x="128" y="108" text-anchor="middle" font-size="13.5" font-weight="600" fill="#1f2328">Claude Code</text>
+            <text x="128" y="126" text-anchor="middle" font-size="10.5" fill="#64748b">Anthropic /v1/messages</text>
+
+            <rect x="38" y="158" width="180" height="58" rx="10" fill="#fff" stroke="#e2e8f0"></rect>
+            <text x="128" y="182" text-anchor="middle" font-size="13.5" font-weight="600" fill="#1f2328">Cursor · Continue</text>
+            <text x="128" y="200" text-anchor="middle" font-size="10.5" fill="#64748b">OpenAI /v1/chat/completions</text>
+
+            <rect x="38" y="232" width="180" height="58" rx="10" fill="#fff" stroke="#e2e8f0"></rect>
+            <text x="128" y="256" text-anchor="middle" font-size="13.5" font-weight="600" fill="#1f2328">Open WebUI</text>
+            <text x="128" y="274" text-anchor="middle" font-size="10.5" fill="#64748b">OpenAI 兼容</text>
+
+            <rect x="38" y="306" width="180" height="58" rx="10" fill="#fff" stroke="#e2e8f0"></rect>
+            <text x="128" y="330" text-anchor="middle" font-size="13.5" font-weight="600" fill="#1f2328">SDK · curl</text>
+            <text x="128" y="348" text-anchor="middle" font-size="10.5" fill="#64748b">任意 HTTP 客户端</text>
+          </g>
+
+          <line x1="218" y1="113" x2="294" y2="113" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arrow)"></line>
+          <line x1="218" y1="187" x2="294" y2="187" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arrow)"></line>
+          <line x1="218" y1="261" x2="294" y2="261" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arrow)"></line>
+          <line x1="218" y1="335" x2="294" y2="335" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arrow)"></line>
+
+          <rect x="300" y="76" width="420" height="354" rx="16" fill="#fff" stroke="#dbeafe" filter="url(#cardShadow)"></rect>
+          <rect x="324" y="96" width="38" height="38" rx="10" fill="#2563eb"></rect>
+          <g stroke="#fff" stroke-width="1.7" stroke-linecap="round">
+            <circle cx="336" cy="108" r="3.3" fill="#fff" stroke="none"></circle>
+            <circle cx="352" cy="114" r="3.3" fill="#fff" stroke="none"></circle>
+            <circle cx="338" cy="123" r="3.3" fill="#fff" stroke="none"></circle>
+            <path d="M336 108 L352 114 M336 108 L338 123 M352 114 L338 123"></path>
+          </g>
+          <text x="374" y="110" font-size="16" font-weight="700" fill="#1f2328">TokenHUB</text>
+          <text x="374" y="128" font-size="10.5" fill="#64748b" font-family="Consolas, monospace">127.0.0.1:8787</text>
+
+          <g>
+            <rect x="324" y="160" width="372" height="38" rx="9" fill="#f8fafc" stroke="#eef2f7"></rect>
+            <circle cx="340" cy="179" r="3" fill="#2563eb"></circle>
+            <text x="354" y="184" font-size="12" fill="#334155">可选本地 Key 鉴权</text>
+
+            <rect x="324" y="206" width="372" height="38" rx="9" fill="#f8fafc" stroke="#eef2f7"></rect>
+            <circle cx="340" cy="225" r="3" fill="#2563eb"></circle>
+            <text x="354" y="230" font-size="12" fill="#334155">按优先级选择供应商</text>
+
+            <rect x="324" y="252" width="372" height="38" rx="9" fill="#f8fafc" stroke="#eef2f7"></rect>
+            <circle cx="340" cy="271" r="3" fill="#2563eb"></circle>
+            <text x="354" y="276" font-size="12" fill="#334155">OpenAI ↔ Anthropic 转译</text>
+
+            <rect x="324" y="298" width="372" height="38" rx="9" fill="#f8fafc" stroke="#eef2f7"></rect>
+            <circle cx="340" cy="317" r="3" fill="#2563eb"></circle>
+            <text x="354" y="322" font-size="12" fill="#334155">额度探针与冷却</text>
+
+            <rect x="324" y="344" width="372" height="38" rx="9" fill="#f8fafc" stroke="#eef2f7"></rect>
+            <circle cx="340" cy="363" r="3" fill="#2563eb"></circle>
+            <text x="354" y="368" font-size="12" fill="#334155">请求历史（仅元数据）</text>
+          </g>
+          <text x="510" y="412" text-anchor="middle" font-size="10.5" fill="#94a3b8">失败自动换下一个 · 流式首字节后不切换</text>
+
+          <line x1="720" y1="113" x2="800" y2="113" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arrow)"></line>
+          <line x1="720" y1="187" x2="800" y2="187" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arrow)"></line>
+          <line x1="720" y1="261" x2="800" y2="261" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arrow)"></line>
+          <line x1="720" y1="335" x2="800" y2="335" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arrow)"></line>
+
+          <g>
+            <rect x="806" y="84" width="278" height="58" rx="10" fill="#fff" stroke="#e2e8f0"></rect>
+            <circle cx="824" cy="106" r="3.5" fill="#22c55e"></circle>
+            <text x="836" y="110" font-size="13.5" font-weight="600" fill="#1f2328">OpenCode Go</text>
+            <text x="836" y="127" font-size="10.5" fill="#64748b">滚动 / 周 / 月额度窗口</text>
+
+            <rect x="806" y="158" width="278" height="58" rx="10" fill="#fff" stroke="#e2e8f0"></rect>
+            <circle cx="824" cy="180" r="3.5" fill="#22c55e"></circle>
+            <text x="836" y="184" font-size="13.5" font-weight="600" fill="#1f2328">DeepSeek</text>
+            <text x="836" y="201" font-size="10.5" fill="#64748b">账户余额探测</text>
+
+            <rect x="806" y="232" width="278" height="58" rx="10" fill="#fff" stroke="#e2e8f0"></rect>
+            <circle cx="824" cy="254" r="3.5" fill="#22c55e"></circle>
+            <text x="836" y="258" font-size="13.5" font-weight="600" fill="#1f2328">CommandCode Goat</text>
+            <text x="836" y="275" font-size="10.5" fill="#64748b">按 429 / 402 错误码冷却</text>
+
+            <rect x="806" y="306" width="278" height="58" rx="10" fill="#fff" stroke="#e2e8f0"></rect>
+            <circle cx="824" cy="328" r="3.5" fill="#22c55e"></circle>
+            <text x="836" y="332" font-size="13.5" font-weight="600" fill="#1f2328">自定义 / 中转</text>
+            <text x="836" y="349" font-size="10.5" fill="#64748b">任意 OpenAI / Anthropic 兼容服务</text>
+          </g>
+        </svg>
+        <p class="diagram-note">所有监听只发生在 127.0.0.1；图中不包含任何云端控制面。</p>
+        <p class="mobile-hint">左右滑动可查看完整架构图</p>
+      </div>
+
+      <div class="steps">
+        <div class="step">
+          <b>1</b>
+          <h3>客户端指向本地</h3>
+          <p>OpenAI 客户端使用 <span class="mono">http://127.0.0.1:8787/v1</span>，Anthropic 客户端使用根地址。未启用本地访问 Key 时，API Key 可填任意占位值。</p>
+        </div>
+        <div class="step">
+          <b>2</b>
+          <h3>TokenHUB 选择路径</h3>
+          <p>按供应商优先级选择；把本地模型 ID 映射到上游真实 ID；根据能力表决定直连还是转换请求形状。</p>
+        </div>
+        <div class="step">
+          <b>3</b>
+          <h3>失败自动接力</h3>
+          <p>额度、限流、5xx 会切到下一个可用供应商。流式请求一旦开始返回内容就不再切换，避免半截回答被重放。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="features" aria-labelledby="features-title">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="eyebrow">Feature set</p>
+        <h2 id="features-title">一个网关，覆盖日常使用的全部环节</h2>
+        <p class="lead">从选供应商到看用量，四件事都在本地完成：路由、转译、额度、记录。</p>
+      </div>
+
+      <div class="feature-grid">
+        <div class="feature">
+          <span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="6" r="2.2"></circle><circle cx="19" cy="18" r="2.2"></circle><path d="M7.2 6H14a4 4 0 0 1 0 8H9a4 4 0 0 0 0 8h7.8"></path></svg></span>
+          <h3>优先级路由</h3>
+          <p>供应商列表顺序就是路由顺序。拖动即调整，禁用即跳过，不需要改任何客户端配置。</p>
+        </div>
+        <div class="feature">
+          <span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h13l-3-3"></path><path d="M20 16H7l3 3"></path></svg></span>
+          <h3>自动故障转移</h3>
+          <p>额度耗尽、限流、5xx 与网络错误会切到下一个可用供应商；额度与限流按各自策略冷却。</p>
+        </div>
+        <div class="feature">
+          <span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 7h10v10H7z"></path><path d="M4 12H2M22 12h-2M12 4V2M12 22v-2"></path></svg></span>
+          <h3>双协议互转</h3>
+          <p>OpenAI Chat Completions 与 Anthropic Messages 双向转换，流式与非流式都支持。</p>
+        </div>
+        <div class="feature">
+          <span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13l-7 7-9-9V4h7l9 9z"></path><circle cx="8.5" cy="8.5" r="1.2"></circle></svg></span>
+          <h3>统一模型 ID</h3>
+          <p>同一个模型在多家供应商的上游 ID 可以映射到一个本地 ID；原始 ID 仍可用 providerId/原始ID 强制访问。</p>
+        </div>
+        <div class="feature">
+          <span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 14l4-4"></path><path d="M4.5 18a8 8 0 1 1 15 0"></path><circle cx="12" cy="18" r="1.2"></circle></svg></span>
+          <h3>额度探针</h3>
+          <p>OpenCode Go 显示三窗口，DeepSeek 显示余额；没有额度接口的供应商按 429 / 402 进入冷却。</p>
+        </div>
+        <div class="feature">
+          <span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"></circle><path d="M12 8v5l3 2"></path></svg></span>
+          <h3>历史与诊断</h3>
+          <p>记录模型、供应商、Token、耗时、首字节、错误分类与切换来源；不保存提示词和回复正文。</p>
+        </div>
+        <div class="feature">
+          <span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5c0 5-3 8-7 10-4-2-7-5-7-10V6l7-3z"></path><path d="M9 12l2 2 4-4"></path></svg></span>
+          <h3>密钥保险箱</h3>
+          <p>供应商 Key 与本地访问 Key 由 Windows DPAPI 加密保存，界面不回显，日志与历史不落 Key。</p>
+        </div>
+        <div class="feature">
+          <span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2"></rect><path d="M8 20h8M12 16v4"></path></svg></span>
+          <h3>托盘常驻</h3>
+          <p>关闭窗口继续服务；托盘图标绿 / 黄 / 红表示健康度，菜单可暂停路由、复制地址或退出。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="overview" aria-labelledby="overview-title">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="eyebrow">01 · 概览</p>
+        <h2 id="overview-title">一眼看清服务、额度和每一次请求</h2>
+        <p class="lead">概览页是日常入口：先看服务是否在跑，再看额度是否够用，最后从最近请求里定位问题。</p>
+      </div>
+
+      <div class="mini-grid">
+        <div class="mini">
+          <h3>今日用量</h3>
+          <p>请求数、Token、失败数与成功率都来自本地历史，不需要连云端控制台。</p>
+        </div>
+        <div class="mini">
+          <h3>额度卡</h3>
+          <p>按路由优先级排列；窗口百分比、重置倒计时与账户余额都在同一屏。</p>
+        </div>
+        <div class="mini">
+          <h3>暂停路由</h3>
+          <p>一键让所有 /v1 请求返回 503，客户端不会在维护期间误发请求。</p>
+        </div>
+      </div>
+
+      <div class="figure-stack">
+        <figure class="shot">
+          <img src="{{IMG_OVERVIEW_QUOTA}}" width="1153" height="468" decoding="async" alt="概览页的供应商额度卡片：OpenCode Go 三个额度窗口、CommandCode 无额度接口、DeepSeek 账户余额">
+          <figcaption class="caption">
+            <span>额度卡按优先级排列：OpenCode Go 显示滚动 / 周 / 月窗口，DeepSeek 显示余额，无额度接口的供应商按错误码冷却。</span>
+            <span class="pill">演示数据</span>
+          </figcaption>
+        </figure>
+
+        <figure class="shot">
+          <img src="{{IMG_HISTORY}}" width="1153" height="918" decoding="async" alt="最近请求表格，其中一条记录已展开，显示请求 ID、上游模型、首字节耗时、切换来源与请求方式">
+          <figcaption class="caption">
+            <span>最近请求：展开任一条可查看请求 ID、上游模型、首字节耗时、错误分类、切换来源，以及流式 / 非流式。</span>
+            <span class="pill">演示数据</span>
+          </figcaption>
+        </figure>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="providers" aria-labelledby="providers-title">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="eyebrow">02 · 供应商</p>
+        <h2 id="providers-title">把供应商排成一条优先级队列</h2>
+        <p class="lead">从上到下就是路由顺序。上面先试，失败或冷却时自动落到下一个。</p>
+      </div>
+
+      <div class="mini-grid">
+        <div class="mini">
+          <h3>预设即用</h3>
+          <p>OpenCode Go、CommandCode Goat、DeepSeek 三个预设会自动填好 Base URL 与额度适配器。</p>
+        </div>
+        <div class="mini">
+          <h3>Key 加密保存</h3>
+          <p>只在新增或更换时输入；列表只显示“已保存”，编辑时留空表示沿用原 Key。</p>
+        </div>
+        <div class="mini">
+          <h3>手动模型</h3>
+          <p>服务不提供 /models 时，可以直接填写模型 ID，用逗号分隔。</p>
+        </div>
+      </div>
+
+      <figure class="shot">
+        <img src="{{IMG_PROVIDERS}}" width="1440" height="760" decoding="async" alt="供应商列表：三个已启用供应商，显示优先级、Base URL、模型数量、状态、启停开关与操作按钮">
+        <figcaption class="caption">
+          <span>供应商列表：拖动手柄调整优先级，开关即时启停；Key 只显示保存状态，界面不回显内容。</span>
+          <span class="pill">演示数据</span>
+        </figcaption>
+      </figure>
+
+      <div class="figure-split">
+        <figure class="shot">
+          <img src="{{IMG_PROVIDER_DIALOG}}" width="640" height="919" decoding="async" alt="编辑供应商对话框：预设、名称、Base URL、API Key、额度适配器、低余额阈值、冷却小时数、流式 usage 与手动模型">
+          <figcaption class="caption"><span>编辑供应商：留空 API Key 表示沿用已保存的密钥。</span></figcaption>
+        </figure>
+        <ul class="bullet-list">
+          <li>
+            <span class="dot" aria-hidden="true"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg></span>
+            <div><h3>测试连接</h3><p>保存前先拉一次模型列表并探测额度，确认 Key 与地址是否可用。</p></div>
+          </li>
+          <li>
+            <span class="dot" aria-hidden="true"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg></span>
+            <div><h3>额度与冷却</h3><p>可设置低余额阈值、额度耗尽后的冷却小时数，以及流式请求是否注入 usage。</p></div>
+          </li>
+          <li>
+            <span class="dot" aria-hidden="true"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg></span>
+            <div><h3>冷却与恢复</h3><p>额度、限流、瞬态失败会进入冷却；概览卡的「恢复」按钮可手动清零。</p></div>
+          </li>
+          <li>
+            <span class="dot" aria-hidden="true"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg></span>
+            <div><h3>排序与删除</h3><p>拖动即保存优先级；删除供应商会同时移除它的模型与统一模型目标。</p></div>
+          </li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="models" aria-labelledby="models-title">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="eyebrow">03 · 模型</p>
+        <h2 id="models-title">一个模型名，多个供应商兜底</h2>
+        <p class="lead">模型页合并所有启用供应商的目录。统一模型把同一个模型的上游 ID 收拢到一个本地 ID，Agent 只记一个名字。</p>
+      </div>
+
+      <div class="mini-grid">
+        <div class="mini">
+          <h3>合并目录</h3>
+          <p>同名模型只出现一次；路由时按供应商优先级与当前可用性依次尝试。</p>
+        </div>
+        <div class="mini">
+          <h3>统一模型</h3>
+          <p>显式映射优先；被映射的原始 ID 从 /v1/models 隐藏，仍可用 providerId/原始ID 强制访问。</p>
+        </div>
+        <div class="mini">
+          <h3>自动建议</h3>
+          <p>按名称相似度生成候选，只建议不自动合并；确认后才创建统一模型。</p>
+        </div>
+      </div>
+
+      <div class="figure-stack">
+        <figure class="shot">
+          <img src="{{IMG_MODELS_COMPAT}}" width="1153" height="223" decoding="async" alt="调用方式兼容性列表：三个供应商的已扫描模型数量、Messages 可用数与 Chat 可用数">
+          <figcaption class="caption">
+            <span>调用方式兼容性：A = Anthropic /messages，O = OpenAI /chat/completions；按供应商汇总已扫描模型与最近扫描时间。</span>
+            <span class="pill">演示数据</span>
+          </figcaption>
+        </figure>
+
+        <figure class="shot">
+          <img src="{{IMG_MODELS_ALIASES}}" width="1153" height="136" decoding="async" alt="统一模型列表：claude-sonnet-4-5 映射到 OpenCode Go 与 CommandCode Goat 两家的上游模型">
+          <figcaption class="caption"><span>统一模型：一个本地 ID 映射到多个供应商的上游模型，路由仍按供应商优先级。</span></figcaption>
+        </figure>
+
+        <figure class="shot">
+          <img src="{{IMG_MODELS_CATALOG}}" width="1153" height="443" decoding="async" alt="模型目录：8 个合并后的模型，右侧显示供应商徽标与 A/O 协议能力徽标">
+          <figcaption class="caption">
+            <span>模型目录：右侧徽标显示候选供应商与协议能力；绿色 A✓ / O✓ 表示扫描确认可用，红色表示明确不支持。</span>
+            <span class="pill">演示数据</span>
+          </figcaption>
+        </figure>
+      </div>
+
+      <div class="callout">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 8h.01M11 12h1v4h1"></path></svg>
+        <div><strong>模型页的「扫描」是诊断请求：</strong>对每个模型向 /messages 与 /chat/completions 各发一个 <span class="mono">max_tokens=16</span> 的请求，把结果写入供应商配置。扫描不写历史，也不计供应商故障；只有同一模型两个入口都返回 401（Key 无效）才提前停止。</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="settings" aria-labelledby="settings-title">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="eyebrow">04 · 设置</p>
+        <h2 id="settings-title">端口、访问保护与托盘行为</h2>
+        <p class="lead">设置页决定服务怎么被访问、怎么随系统启动，以及历史与额度探针的节奏。</p>
+      </div>
+
+      <figure class="shot">
+        <img src="{{IMG_SETTINGS}}" width="1440" height="967" decoding="async" alt="设置页：服务端口、本地访问 Key、启动与托盘、日志与额度、连接信息">
+        <figcaption class="caption">
+          <span>设置页：端口、本地访问 Key、启动与托盘、历史保留与额度刷新。截图中的 18799 为演示端口。</span>
+          <span class="pill">演示数据</span>
+        </figcaption>
+      </figure>
+
+      <div class="mini-grid" style="margin-top:28px">
+        <div class="mini">
+          <h3>服务端口</h3>
+          <p>1–65535。新端口先启动，失败时旧端口继续可用；端口被占用不会导致应用打不开。</p>
+        </div>
+        <div class="mini">
+          <h3>本地访问 Key</h3>
+          <p>启用后 /v1 必须携带 Bearer 或 x-api-key；Key 不回显，关闭开关立即停用鉴权。</p>
+        </div>
+        <div class="mini">
+          <h3>启动与托盘</h3>
+          <p>开机自启（仅安装版）、启动时最小化、关闭窗口到托盘；托盘图标颜色表示健康度。</p>
+        </div>
+        <div class="mini">
+          <h3>日志与额度</h3>
+          <p>历史保留 7 / 30 / 90 天或永久；额度刷新 10–3600 秒，默认 60 秒。</p>
+        </div>
+      </div>
+
+      <figure class="shot" style="margin-top:18px">
+        <img src="{{IMG_CONNECTION}}" width="1153" height="314" decoding="async" alt="连接信息卡片：OpenAI Base URL 与 Anthropic Base URL，均可一键复制">
+        <figcaption class="caption"><span>连接信息可直接复制：OpenAI 指向 /v1，Anthropic 指向根地址。模型名使用「模型」页显示的 ID。</span></figcaption>
+      </figure>
+
+      <div class="callout">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 8h.01M11 12h1v4h1"></path></svg>
+        <div><strong>端口被占用时应用仍然会打开。</strong>到设置页换一个端口保存即可重试；配置、Key 与历史都不会受影响。</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="start" aria-labelledby="start-title">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="eyebrow">Quick start</p>
+        <h2 id="start-title">五分钟接入</h2>
+        <p class="lead">以默认端口 8787 为例。如果改过端口，请以设置页「连接信息」为准。</p>
+      </div>
+
+      <div class="start-wrap">
+        <div class="step-list">
+          <div class="step-item">
+            <span class="step-no">1</span>
+            <div>
+              <h3>安装并启动</h3>
+              <p>运行 Windows 安装包，启动后 TokenHUB 会监听 <span class="mono">127.0.0.1:8787</span>。关闭窗口默认最小化到托盘，服务继续运行。</p>
+            </div>
+          </div>
+
+          <div class="step-item">
+            <span class="step-no">2</span>
+            <div>
+              <h3>添加供应商</h3>
+              <p>进入「供应商」→「添加供应商」，选择预设或自定义，填 Base URL 与 API Key。建议先点「测试连接」，确认模型列表与额度都能读到再保存。</p>
+            </div>
+          </div>
+
+          <div class="step-item">
+            <span class="step-no">3</span>
+            <div>
+              <h3>刷新模型</h3>
+              <p>保存后会自动发现模型；也可以回到「模型」页点「刷新全部」。服务不提供 /models 时，在编辑供应商里手动填写模型 ID。</p>
+            </div>
+          </div>
+
+          <div class="step-item">
+            <span class="step-no">4</span>
+            <div>
+              <h3>把客户端指向本地</h3>
+              <p>OpenAI 与 Anthropic 客户端各用一套地址。未启用本地访问 Key 时，API Key 填任意非空占位值即可；启用后请换成你在设置页保存的 Key。</p>
+              <div class="code-grid">
+                <div class="code-block">
+                  <p class="code-label">OpenAI SDK / 兼容客户端</p>
+                  <div class="code">
+                    <button class="copy" type="button">复制</button>
+                    <pre><code><span class="c"># 环境变量</span>
+OPENAI_BASE_URL=http://127.0.0.1:8787/v1
+OPENAI_API_KEY=sk-local-placeholder</code></pre>
+                  </div>
+                </div>
+                <div class="code-block">
+                  <p class="code-label">Claude Code / Anthropic 客户端</p>
+                  <div class="code">
+                    <button class="copy" type="button">复制</button>
+                    <pre><code><span class="c"># 环境变量</span>
+ANTHROPIC_BASE_URL=http://127.0.0.1:8787
+ANTHROPIC_AUTH_TOKEN=sk-local-placeholder
+ANTHROPIC_MODEL=claude-sonnet-4-5</code></pre>
+                  </div>
+                </div>
+              </div>
+              <p>有的客户端使用 <span class="mono">ANTHROPIC_API_KEY</span>；按客户端文档选择即可，TokenHUB 只校验你在设置页保存的本地 Key。</p>
+            </div>
+          </div>
+
+          <div class="step-item">
+            <span class="step-no">5</span>
+            <div>
+              <h3>发一条请求验证</h3>
+              <div class="code-grid single">
+                <div class="code-block">
+                  <p class="code-label">OpenAI Chat Completions</p>
+                  <div class="code">
+                    <button class="copy" type="button">复制</button>
+                    <pre><code>curl http://127.0.0.1:8787/v1/chat/completions \
+  -H "Authorization: Bearer sk-local-placeholder" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"deepseek-chat",
+       "messages":[{"role":"user","content":"你好"}]}'</code></pre>
+                  </div>
+                </div>
+                <div class="code-block">
+                  <p class="code-label">Anthropic Messages</p>
+                  <div class="code">
+                    <button class="copy" type="button">复制</button>
+                    <pre><code>curl http://127.0.0.1:8787/v1/messages \
+  -H "x-api-key: sk-local-placeholder" \
+  -H "anthropic-version: 2023-06-01" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"claude-sonnet-4-5","max_tokens":256,
+       "messages":[{"role":"user","content":"你好"}]}'</code></pre>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="step-item">
+            <span class="step-no">6</span>
+            <div>
+              <h3>回概览确认</h3>
+              <p>概览页的今日请求、额度和最近请求会随调用更新。展开一条记录，可以看到实际使用的供应商、首字节耗时与是否发生过切换。</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="routing" aria-labelledby="routing-title">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="eyebrow">Routing rules</p>
+        <h2 id="routing-title">失败时会发生什么</h2>
+        <p class="lead">路由严格按供应商顺序，不做轮询。下面这些规则决定什么时候换、什么时候停、会不会冷却。</p>
+      </div>
+
+      <p class="mobile-hint">表格可左右滑动查看完整内容</p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th scope="col">情况</th><th scope="col">TokenHUB 的行为</th><th scope="col">供应商状态</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><strong>首选供应商可用</strong></td><td>直接转发，返回上游响应</td><td><span class="badge ok">正常</span></td></tr>
+            <tr><td><strong>402 额度耗尽 / 429 被判为额度问题</strong></td><td>切到下一个可用供应商</td><td><span class="badge warn">额度冷却</span> 默认 5 小时，可配置</td></tr>
+            <tr><td><strong>429 限流</strong></td><td>切到下一个可用供应商</td><td><span class="badge warn">限流冷却</span> 按 Retry-After，缺失时 60 秒</td></tr>
+            <tr><td><strong>401 / 403 鉴权失败</strong></td><td>跳过该供应商，继续尝试其他候选</td><td><span class="badge danger">鉴权失败</span> 等待恢复或换 Key</td></tr>
+            <tr><td><strong>5xx / 网络错误 / 超时</strong></td><td>先按需换协议入口，再切到下一个可用供应商</td><td><span class="badge warn">瞬态冷却</span> 10 秒起，连续失败 20 / 40 / 60 秒</td></tr>
+            <tr><td><strong>404 模型不存在</strong></td><td>先尝试另一协议入口，再切下一个有该模型的供应商，并触发一次目录刷新</td><td><span class="badge neutral">不冷却</span> 刷新有 60 秒限流</td></tr>
+            <tr><td><strong>400 / 422 请求本身有误</strong></td><td>不切换供应商；首字节前可能先换协议入口重试一次</td><td><span class="badge neutral">不变</span></td></tr>
+            <tr><td><strong>客户端主动断开</strong></td><td>立即停止，不切换</td><td><span class="badge neutral">不冷却</span></td></tr>
+            <tr><td><strong>流式已出首字节后中断</strong></td><td>结束当前流，不切换供应商</td><td><span class="badge warn">瞬态冷却</span> 10 秒起，连续失败退避到 60 秒；客户端主动断开除外</td></tr>
+            <tr><td><strong>全部候选都不可用（禁用、鉴权失败或冷却）</strong></td><td>返回 503；有冷却中的候选时附带 Retry-After（最短剩余秒数）</td><td><span class="badge neutral">等待冷却或修复 Key</span></td></tr>
+            <tr><td><strong>候选都尝试后仍失败</strong></td><td>返回最后一次上游失败的状态与错误体</td><td><span class="badge neutral">按最后一次失败处理</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="callout">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 8h.01M11 12h1v4h1"></path></svg>
+        <div><strong>流式请求只有首字节前允许切换。</strong>一旦开始返回内容，TokenHUB 不会把请求重放到另一个供应商——这能避免客户端收到两段互相矛盾的回复。全部候选都在冷却时，服务返回 503 并附带 Retry-After，客户端按剩余秒数等待即可。</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="protocol" aria-labelledby="protocol-title">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="eyebrow">Protocol</p>
+        <h2 id="protocol-title">两个入口，两种上游</h2>
+        <p class="lead">TokenHUB 优先使用与客户端一致的协议形状；能力表明确不支持时，才换到另一种形状。</p>
+      </div>
+
+      <p class="mobile-hint">表格可左右滑动查看完整内容</p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th scope="col">客户端入口</th><th scope="col">首选上游</th><th scope="col">何时换入口</th><th scope="col">说明</th></tr>
+          </thead>
+          <tbody>
+            <tr><td class="mono">POST /v1/chat/completions</td><td class="mono">/chat/completions</td><td>首字节前 400 / 404 / 405 / 422 / 5xx，且另一入口未判死</td><td>OpenAI 请求可转成 Anthropic 形状，响应再转回 OpenAI</td></tr>
+            <tr><td class="mono">POST /v1/messages</td><td class="mono">/messages</td><td>同上</td><td>Anthropic 请求可转成 OpenAI 形状，SSE 再转回 Anthropic</td></tr>
+            <tr><td class="mono">POST /v1/messages/count_tokens</td><td>本地估算</td><td>—</td><td>不请求上游，Claude Code 的 token 计数可直接使用</td></tr>
+            <tr><td class="mono">GET /v1/models</td><td>本地合并目录</td><td>—</td><td>带 <span class="mono">anthropic-version</span> 时返回 Anthropic 形状</td></tr>
+            <tr><td class="mono">GET /health</td><td>本地</td><td>—</td><td>返回运行状态与是否暂停</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="mini-grid" style="margin-top:24px">
+        <div class="mini">
+          <h3>CommandCode Goat</h3>
+          <p><span class="mono">claude*</span> 模型只走 /messages，其余模型只走 /chat/completions；预设会按模型名自动判断。</p>
+        </div>
+        <div class="mini">
+          <h3>OpenCode Go</h3>
+          <p>两个入口都可用；请求会优先保持客户端原本的协议形状。</p>
+        </div>
+        <div class="mini">
+          <h3>DeepSeek / 自定义</h3>
+          <p>默认按 Chat 处理；需要 Messages 入口时，先扫描确认或在能力表中显式标记。</p>
+        </div>
+      </div>
+
+      <figure class="shot" style="margin-top:22px">
+        <img src="{{IMG_SCAN}}" width="768" height="266" decoding="async" alt="调用方式兼容性扫描结果弹窗：四个模型分别显示 Anthropic /messages 与 OpenAI /chat/completions 是否可用">
+        <figcaption class="caption">
+          <span>扫描结果：每个模型分别显示两个入口的可用性，扫描时间与备注一并保存。图中 qwen3-coder 只支持 Chat 入口。</span>
+          <span class="pill">演示数据</span>
+        </figcaption>
+      </figure>
+
+      <div class="callout">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 8h.01M11 12h1v4h1"></path></svg>
+        <div><strong>换入口只发生在首字节前。</strong>401 / 402 / 429 不会换入口——两种形状共用同一把 Key，重试没有意义；流式开始输出后也不会再换。</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="security" aria-labelledby="security-title">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="eyebrow">Security &amp; privacy</p>
+        <h2 id="security-title">Key 和提示词，都不应该离开本机</h2>
+        <p class="lead">TokenHUB 是本地进程，不是云端中转。它只在处理请求时把内容转发给你选择的供应商。</p>
+      </div>
+
+      <div class="security-grid">
+        <div class="security-item">
+          <span class="check" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg></span>
+          <div><h3>只监听回环地址</h3><p>服务绑定 127.0.0.1，不接受局域网或公网连接，不需要开放防火墙端口。</p></div>
+        </div>
+        <div class="security-item">
+          <span class="check" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg></span>
+          <div><h3>DPAPI 加密保存</h3><p>供应商 Key 与本地访问 Key 存在 secrets.bin，由 Windows 加密保护，不写明文配置。</p></div>
+        </div>
+        <div class="security-item">
+          <span class="check" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg></span>
+          <div><h3>界面与日志不回显</h3><p>只显示“已保存 / 未配置”；历史与日志里不会出现 Key 内容。</p></div>
+        </div>
+        <div class="security-item">
+          <span class="check" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg></span>
+          <div><h3>可选的本地访问保护</h3><p>开启后请求必须带 Bearer 或 x-api-key；关闭时本机程序可直接访问，适合单人开发机。</p></div>
+        </div>
+        <div class="security-item">
+          <span class="check" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg></span>
+          <div><h3>历史仅保留元数据</h3><p>记录时间、模型、供应商、状态、Token、耗时与错误分类，不保存提示词和回复正文。</p></div>
+        </div>
+        <div class="security-item">
+          <span class="check" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg></span>
+          <div><h3>请求边界</h3><p>请求体上限 20 MB；上游地址默认只允许 https，本机回环可用 http。</p></div>
+        </div>
+        <div class="security-item">
+          <span class="check" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg></span>
+          <div><h3>单实例与导航隔离</h3><p>同一时间只运行一个实例；渲染层禁用 Node，外部链接与新窗口会被拦截。</p></div>
+        </div>
+        <div class="security-item">
+          <span class="check" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg></span>
+          <div><h3>没有遥测上报</h3><p>不做用量分析或行为上报；只有你主动发起的请求会到达对应供应商。</p></div>
+        </div>
+      </div>
+
+      <div class="callout">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 8h.01M11 12h1v4h1"></path></svg>
+        <div><strong>迁移提醒：</strong>config.json 与历史可以复制；secrets.bin 与写入它的 Windows 用户 / 实例绑定，复制到其他数据目录会解密失败并被隔离。换机时建议重新录入 Key。</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="faq" aria-labelledby="faq-title">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="eyebrow">FAQ</p>
+        <h2 id="faq-title">常见问题</h2>
+      </div>
+      <div class="faq">
+        <details>
+          <summary>端口 8787 被占用了怎么办？</summary>
+          <p>应用仍然会打开，但概览和设置页会提示服务未启动。到「设置」把端口改成另一个可用值并保存即可；旧配置、Key 和历史不受影响。新端口启动失败时，旧端口会继续服务。</p>
+        </details>
+        <details>
+          <summary>Key 填错了会怎样？</summary>
+          <p>上游返回 401 / 403 时，该供应商会被标记为鉴权失败并跳过。更新 Key 后会自动清除该状态；也可以在概览卡上点「恢复」手动清零。</p>
+        </details>
+        <details>
+          <summary>模型列表是空的？</summary>
+          <p>先点「刷新全部」。有些服务不提供 /models 接口，这时编辑供应商并手动填写模型 ID。请求一个本地目录里没有的模型也会触发一次目录刷新，但 60 秒内最多一次。</p>
+        </details>
+        <details>
+          <summary>为什么有的供应商没有额度条？</summary>
+          <p>只有 OpenCode Go（三窗口）与 DeepSeek（余额）提供额度接口。CommandCode 等没有公开额度接口的供应商会根据 429 / 402 错误码进入冷却，因此卡片上只显示状态与冷却倒计时。</p>
+        </details>
+        <details>
+          <summary>额度多久刷新一次？</summary>
+          <p>默认 60 秒，可在设置页调整为 10–3600 秒。DeepSeek 余额最多每 5 分钟探测一次，避免频繁请求。探测失败不会改变路由状态，连续失败 3 次会暂停该探针。</p>
+        </details>
+        <details>
+          <summary>流式输出中途断了会切换吗？</summary>
+          <p>不会。首字节之后不再切换供应商，避免已经输出的内容被另一段回答覆盖。上游截断会按瞬态失败从 10 秒起冷却，连续失败逐步退避到 60 秒；客户端自己断开不算供应商故障。</p>
+        </details>
+        <details>
+          <summary>可以多个客户端同时用吗？</summary>
+          <p>可以。TokenHUB 在本机提供一个 HTTP 服务，多个客户端可以同时连接；并发上限取决于上游供应商，TokenHUB 不做额外的排队或限速。</p>
+        </details>
+        <details>
+          <summary>换电脑怎么迁移？</summary>
+          <p>复制 config.json 可以保留供应商、模型与统一模型配置；历史是 history 目录下的 JSONL，也可以复制。secrets.bin 因 Windows 加密绑定，复制后通常无法解密，建议在新机器上重新录入 Key。</p>
+        </details>
+        <details>
+          <summary>支持 macOS 或 Linux 吗？</summary>
+          <p>当前只提供 Windows 安装包（NSIS），开机自启也只在安装版生效。代码基于 Electron，但其他平台尚未打包与验证，不建议直接当作可用版本。</p>
+        </details>
+        <details>
+          <summary>我的提示词会被保存或上传吗？</summary>
+          <p>TokenHUB 不保存提示词和回复正文，也没有遥测。请求内容只会在处理时转发给你选择的供应商；本地历史只记录请求元数据。</p>
+        </details>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="limits" aria-labelledby="limits-title">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="eyebrow">Scope</p>
+        <h2 id="limits-title">它不做什么</h2>
+        <p class="lead">把边界说清楚，比列出更多“特性”更有用。</p>
+      </div>
+      <div class="limits">
+        <div class="limit"><span aria-hidden="true">•</span><div><b>不是负载均衡器。</b>严格按优先级，不轮询、不按延迟或价格自动选路。</div></div>
+        <div class="limit"><span aria-hidden="true">•</span><div><b>只覆盖 Chat 与 Messages。</b>不代理 Embeddings、Rerank、Realtime、Batch 等端点。</div></div>
+        <div class="limit"><span aria-hidden="true">•</span><div><b>单机单用户。</b>没有团队配额、审计日志或多租户隔离。</div></div>
+        <div class="limit"><span aria-hidden="true">•</span><div><b>协议能力依赖扫描。</b>未扫描的组合按预设默认处理，必要时需手动验证。</div></div>
+        <div class="limit"><span aria-hidden="true">•</span><div><b>0.1.0 早期版本。</b>配置结构与界面仍可能调整；当前只发布 Windows 安装包。</div></div>
+        <div class="limit"><span aria-hidden="true">•</span><div><b>不做内容处理。</b>不缓存、不改写、不审核提示词与回复。</div></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap footer-inner">
+    <div class="footer-brand">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="16" y="16" width="6" height="6" rx="1"></rect>
+          <rect x="2" y="16" width="6" height="6" rx="1"></rect>
+          <rect x="9" y="2" width="6" height="6" rx="1"></rect>
+          <path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3"></path>
+          <path d="M12 12V8"></path>
+        </svg>
+      </span>
+      TokenHUB
+    </div>
+    <div class="footer-meta">
+      v0.1.0 · 文档更新于 2026-10-30 · 截图来自演示数据（演示端口 18799）<br>
+      本地优先 · 仅监听 127.0.0.1 · Key 由 Windows DPAPI 加密保存
+    </div>
+  </div>
+</footer>
+
+<dialog id="lightbox" aria-label="查看大图">
+  <img alt="">
+  <p class="hint">点击任意处或按 Esc 关闭</p>
+</dialog>
+
+<script>
+  (() => {
+    const lightbox = document.getElementById('lightbox')
+    const lightboxImg = lightbox.querySelector('img')
+    const lightboxHint = lightbox.querySelector('.hint')
+    document.querySelectorAll('figure.shot img').forEach((img) => {
+      img.addEventListener('click', () => {
+        lightboxImg.src = img.src
+        lightboxImg.alt = img.alt
+        lightboxHint.textContent = img.alt + ' · 点击任意处或按 Esc 关闭'
+        lightbox.showModal()
+      })
+    })
+    lightbox.addEventListener('click', () => lightbox.close())
+
+    document.querySelectorAll('.code').forEach((block) => {
+      const button = block.querySelector('.copy')
+      const code = block.querySelector('code')
+      if (!button || !code) return
+      button.addEventListener('click', async () => {
+        const text = code.innerText
+        try {
+          await navigator.clipboard.writeText(text)
+        } catch {
+          const range = document.createRange()
+          range.selectNodeContents(code)
+          const selection = window.getSelection()
+          selection.removeAllRanges()
+          selection.addRange(range)
+          document.execCommand('copy')
+          selection.removeAllRanges()
+        }
+        const original = button.textContent
+        button.textContent = '已复制'
+        window.setTimeout(() => { button.textContent = original }, 1600)
+      })
+    })
+
+    const links = Array.from(document.querySelectorAll('.nav a[href^="#"]'))
+    const sections = links
+      .map((link) => document.querySelector(link.getAttribute('href')))
+      .filter(Boolean)
+    if ('IntersectionObserver' in window) {
+      const observer = new IntersectionObserver((entries) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue
+          links.forEach((link) => {
+            link.classList.toggle('active', link.getAttribute('href') === '#' + entry.target.id)
+          })
+        }
+      }, { rootMargin: '-25% 0px -65% 0px' })
+      sections.forEach((section) => observer.observe(section))
+    }
+  })()
+</script>
+</body>
+</html>

@@ -10,6 +10,7 @@
 - `npm run build`：electron-vite 构建到 `out/`
 - `npx playwright test`：Electron E2E（先构建）
 - `npm run dist`：构建并打 NSIS 安装包到 `release/`
+- `node docs/readme/build.mjs`：由 `docs/readme/` 的模板与截图生成根目录 `README.html`
 - 首次运行 Electron 需要二进制；网络不通时用 `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/`
 
 ## 目录与职责
@@ -18,6 +19,7 @@
 - `electron/`：主进程、托盘、IPC、preload、safeStorage 适配。
 - `src/`：React + Tailwind 渲染进程，只通过 `window.tokenhub` 调用 IPC。
 - `tests/unit`、`tests/integration`、`tests/e2e`：单测、假上游集成、Playwright Electron。
+- `docs/readme/`：HTML README 的模板、截图与生成脚本；产物是根目录 `README.html`，不要直接改产物。
 
 ## 稳定契约与易踩的坑
 
