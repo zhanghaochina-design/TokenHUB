@@ -501,7 +501,7 @@ export function SettingsPage({ state }: SettingsPageProps) {
                 </p>
               )}
               <p id="settings-quota-hint" className={HINT_CLASS}>
-                10-3600 秒，默认 60 秒；DeepSeek 余额最多每 5 分钟探测一次。
+                10-3600 秒，默认 300 秒（5 分钟）；所有供应商按同一间隔探测。
               </p>
             </div>
           </div>

@@ -15,7 +15,7 @@ export function defaultConfig(): AppConfig {
       startMinimized: false,
       closeToTray: true,
       retentionDays: 30,
-      quotaRefreshSec: 60
+      quotaRefreshSec: 300
     }
   }
 }

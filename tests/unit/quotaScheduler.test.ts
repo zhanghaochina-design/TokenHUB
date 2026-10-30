@@ -67,17 +67,6 @@ describe('quota scheduler', () => {
     expect(ctx.creditsCalls()).toBe(2)
   })
 
-  it('throttles CommandCode to five minutes but lets manual refresh through', async () => {
-    const ctx = setup()
-    ctx.setFailing(false)
-    await ctx.scheduler.refreshAll()
-    const afterFirst = ctx.creditsCalls()
-    await ctx.scheduler.refreshAll()
-    expect(ctx.creditsCalls()).toBe(afterFirst)
-    await ctx.scheduler.refreshAll(true)
-    expect(ctx.creditsCalls()).toBe(afterFirst + 1)
-  })
-
   it('caps the backoff at 15 minutes without permanently disabling the probe', async () => {
     const ctx = setup()
     for (let i = 0; i < 6; i += 1) await ctx.scheduler.refreshAll(true)

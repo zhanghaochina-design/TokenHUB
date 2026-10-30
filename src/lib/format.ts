@@ -74,6 +74,11 @@ export function formatClock(iso: string): string {
 }
 
 // 倒计时按显示精度截断：超过一天省略分钟，超过一小时省略秒。
+export function formatRefreshInterval(seconds: number): string {
+  if (Number.isFinite(seconds) && seconds >= 60 && seconds % 60 === 0) return `${seconds / 60} 分钟`
+  return `${seconds} 秒`
+}
+
 export function formatCountdown(target: string | null, now: number): string {
   if (!target) return '—'
   const at = Date.parse(target)

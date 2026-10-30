@@ -8,7 +8,9 @@ import {
   errorKindLabel,
   errorMessage,
   formatCountdown,
+  formatDateTime,
   formatNumber,
+  formatRefreshInterval,
   localDayKey,
   providerStatus,
   type StatusTone
@@ -185,6 +187,10 @@ function ProviderCard({
       </div>
 
       <ProviderQuota provider={provider} runtime={runtime} now={now} />
+
+      {runtime?.quota?.fetchedAt && (
+        <p className="mt-2 text-[11px] text-muted">额度更新于 {formatDateTime(runtime.quota.fetchedAt)}</p>
+      )}
 
       {cooldown && (
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800 ring-1 ring-inset ring-amber-600/20">
@@ -379,7 +385,7 @@ export function OverviewPage({ state, onOpenProviders, onOpenSettings }: Overvie
             供应商额度
           </h2>
           <p className="text-xs text-muted">
-            按路由优先级排列 · 额度每 {state.settings.quotaRefreshSec} 秒探测一次
+            按路由优先级排列 · 额度每 {formatRefreshInterval(state.settings.quotaRefreshSec)} 探测一次
           </p>
         </div>
 

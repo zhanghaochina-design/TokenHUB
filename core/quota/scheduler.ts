@@ -5,8 +5,6 @@ import { deepseekBalanceAdapter } from './deepseek'
 import { commandCodeAdapter } from './commandcode'
 import type { ProbeFetchFn, QuotaAdapter } from './types'
 
-const SLOW_PROBE_INTERVAL_MS = 5 * 60 * 1000
-const SLOW_PROBE_ADAPTERS = new Set<ProviderConfig['quotaAdapter']>(['deepseek-balance', 'commandcode-usage'])
 const PROBE_BACKOFF_BASE_MS = 30 * 1000
 const PROBE_BACKOFF_MAX_MS = 15 * 60 * 1000
 
@@ -26,7 +24,6 @@ function probeBackoffMs(failures: number): number {
 // 定时探针只负责写 runtime 并触发 onUpdate；持久化 quota-cache 由 Hub 的显式刷新路径完成。
 export class QuotaScheduler {
   private timer: ReturnType<typeof setInterval> | null = null
-  private lastSlowProbe = new Map<string, number>()
   private nextProbeAt = new Map<string, number>()
 
   constructor(
@@ -49,10 +46,9 @@ export class QuotaScheduler {
     this.timer = null
   }
 
-  /** 手动“恢复”后清掉退避与节流，下一次 tick 立即重试。 */
+  /** 手动“恢复”后清掉退避，下一次 tick 立即重试。 */
   resetBackoff(id: string): void {
     this.nextProbeAt.delete(id)
-    this.lastSlowProbe.delete(id)
   }
 
   async refreshAll(force = false): Promise<void> {
@@ -64,19 +60,12 @@ export class QuotaScheduler {
       const runtime = this.runtime.get(provider.id)
       // auth_error 只能由用户手动 reset 恢复：继续探测会形成 401 循环。
       if (runtime.availability === 'auth_error') continue
-      if (!force) {
-        if ((this.nextProbeAt.get(provider.id) ?? 0) > nowMs) continue
-        if (SLOW_PROBE_ADAPTERS.has(provider.quotaAdapter)) {
-          const last = this.lastSlowProbe.get(provider.id) ?? 0
-          if (nowMs - last < SLOW_PROBE_INTERVAL_MS) continue
-        }
-      }
+      if (!force && (this.nextProbeAt.get(provider.id) ?? 0) > nowMs) continue
       const adapter = this.adapterFor(provider)
       if (!adapter) continue
       try {
         const snapshot = await adapter.probe(provider, key, { fetchFn: this.fetchFn, now: this.now })
         this.nextProbeAt.delete(provider.id)
-        if (SLOW_PROBE_ADAPTERS.has(provider.quotaAdapter)) this.lastSlowProbe.set(provider.id, nowMs)
         this.runtime.markProbe(provider, snapshot)
       } catch (error) {
         // 探针失败不改变路由状态；只退避重试，绝不永久停用。
@@ -95,7 +84,6 @@ export class QuotaScheduler {
     try {
       const snapshot = await adapter.probe(provider, apiKey, { fetchFn: this.fetchFn, now: this.now })
       this.nextProbeAt.delete(provider.id)
-      if (SLOW_PROBE_ADAPTERS.has(provider.quotaAdapter)) this.lastSlowProbe.set(provider.id, this.now().getTime())
       this.runtime.markProbe(provider, snapshot)
       this.onUpdate()
     } catch (error) {

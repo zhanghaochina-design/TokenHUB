@@ -33,7 +33,7 @@
 - Anthropic 转译：`tool_result` 必须排在用户文本之前；如果响应/流里出现 `tool_use` 块，`finish_reason: stop` 也要映射为 `tool_use`；流式故障切换只允许发生在首字节前。
 - 上游协议按客户端入口 + 能力表选择：本地 `/v1/messages` 优先直连上游 `/messages`，本地 `/v1/chat/completions` 优先直连 `/chat/completions`；`provider.protocolSupport` 明确不支持时改走另一形状，未知时按预设兜底（CommandCode 按模型，OpenCode Go 两端皆可，其余仅 Chat）。首字节前 400/404/405/422/5xx 会换另一入口重试一次；401/402/429 与首字节后失败不换。CommandCode 的 `claude*` 模型只能走 `/messages`，其余只能走 `/chat/completions`；OpenAI 客户端请求这些 Claude 模型时走双向转译（`core/protocol/openai.ts`）。OpenCode Go 的 `/messages` 实测也支持 DeepSeek（官方文档未标注）。
 - 模型页「扫描」按供应商探测每个模型的 `/messages` 与 `/chat/completions`（max_tokens=16），结果持久化到 `config.json` 的 `protocolSupport`；扫描不写历史、不计供应商冷却。只有同一模型两个入口都 401（Key 无效）才提前停止，403/402 只记录当前模型并继续。
-- 额度探针失败按 30s/1m/2m/4m/8m/15m 指数退避并写 WARN 日志；任何一次成功探测（含手动刷新）都清零失败计数，不得永久停用探针；CommandCode 与 DeepSeek 余额类探针固定 5 分钟一次。
+- 额度探针默认每 5 分钟探测一次（`quotaRefreshSec` 默认 300，可调）；失败按 30s/1m/2m/4m/8m/15m 指数退避并写 WARN 日志，任何一次成功探测（含手动刷新）都清零失败计数，不得永久停用探针。
 - OpenCode Go 要求 `x-opencode-session` 与可识别 User-Agent：优先透传客户端会话头（`x-claude-code-session-id` 等），缺失时每请求生成 UUID，否则上游返回 400。
 - 客户端中断不算供应商故障，不得冷却供应商；上游在首字节后截断则按 transient 冷却，但不切换。瞬时故障冷却按连续次数退避 10/20/40/60 秒；因冷却导致无候选时，503 必须带 `Retry-After`（剩余秒数），客户端据此等待而不是立即重试。
 - Electron 开发/E2E 不写系统自启项（`app.isPackaged` 守卫）；E2E 使用临时 `TOKENHUB_DATA_DIR` 与 `TOKENHUB_PORT`。
