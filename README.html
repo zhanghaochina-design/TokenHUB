@@ -422,7 +422,7 @@
       <div class="stats" aria-label="TokenHUB 关键指标">
         <div class="stat"><strong>2</strong><span>协议入口：OpenAI / Anthropic</span></div>
         <div class="stat"><strong>3</strong><span>内置供应商预设</span></div>
-        <div class="stat"><strong>60s</strong><span>默认额度探测间隔</span></div>
+        <div class="stat"><strong>5min</strong><span>默认额度探测间隔</span></div>
         <div class="stat"><strong>100%</strong><span>密钥保存在本机</span></div>
       </div>
     </div>
@@ -829,7 +829,7 @@
         </div>
         <div class="mini">
           <h3>日志与额度</h3>
-          <p>历史保留 7 / 30 / 90 天或永久；额度刷新 10–3600 秒，默认 60 秒。</p>
+          <p>历史保留 7 / 30 / 90 天或永久；额度刷新 10–3600 秒，默认 300 秒（5 分钟）。</p>
         </div>
       </div>
 
@@ -1119,7 +1119,7 @@ ANTHROPIC_MODEL=claude-sonnet-4-5</code></pre>
         </details>
         <details>
           <summary>额度多久刷新一次？</summary>
-          <p>默认 60 秒，可在设置页调整为 10–3600 秒。DeepSeek 余额最多每 5 分钟探测一次，避免频繁请求。探测失败不会改变路由状态，连续失败 3 次会暂停该探针。</p>
+          <p>默认 300 秒（5 分钟），可在设置页调整为 10–3600 秒。探测失败不会改变路由状态，会按 30 秒到 15 分钟的指数退避重试，任何一次成功都会恢复正常频率，不会永久停用探针。</p>
         </details>
         <details>
           <summary>流式输出中途断了会切换吗？</summary>
