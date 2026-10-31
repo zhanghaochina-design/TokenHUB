@@ -18,6 +18,15 @@ const api: TokenHubApi = {
   setLocalKey: (key) => ipcRenderer.invoke('tokenhub:setLocalKey', key),
   setPaused: (paused) => ipcRenderer.invoke('tokenhub:setPaused', paused),
   getHistory: (day, limit) => ipcRenderer.invoke('tokenhub:getHistory', day, limit),
+  getUpdateState: () => ipcRenderer.invoke('tokenhub:getUpdateState'),
+  checkForUpdates: () => ipcRenderer.invoke('tokenhub:checkForUpdates'),
+  downloadUpdate: () => ipcRenderer.invoke('tokenhub:downloadUpdate'),
+  installUpdate: () => ipcRenderer.invoke('tokenhub:installUpdate'),
+  onUpdate: (cb) => {
+    const handler = (_event: unknown, state: Parameters<typeof cb>[0]) => cb(state)
+    ipcRenderer.on('tokenhub:updateState', handler)
+    return () => ipcRenderer.removeListener('tokenhub:updateState', handler)
+  },
   onState: (cb) => {
     const handler = (_event: unknown, state: Parameters<typeof cb>[0]) => cb(state)
     ipcRenderer.on('tokenhub:state', handler)

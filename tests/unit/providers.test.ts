@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { APP_VERSION } from '../../core/appInfo'
 import { PROVIDER_PRESETS, anthropicBaseUrlFor, createProviderFromPreset, defaultAnthropicBaseUrl, protocolSupported, upstreamExtraHeaders, upstreamProtocol } from '../../core/providers/presets'
 import { buildCatalog, parseRequestedModel, providerSupports } from '../../core/providers/catalog'
 import { discoverModels } from '../../core/providers/discover'
@@ -83,7 +84,7 @@ describe('upstream protocol', () => {
   it('adds OpenCode session headers only for the opencode-go preset', () => {
     expect(upstreamExtraHeaders(createProviderFromPreset('opencode-go', 'p1'), 'sess-1')).toEqual({
       'x-opencode-session': 'sess-1',
-      'user-agent': 'TokenHUB/0.1.0'
+      'user-agent': `TokenHUB/${APP_VERSION}`
     })
     expect(upstreamExtraHeaders(createProviderFromPreset('commandcode', 'p2'), 'sess-1')).toEqual({})
   })

@@ -45,9 +45,13 @@ jobs:
       - name: Write checksums
         shell: pwsh
         run: |
-          Get-ChildItem release/*.exe | ForEach-Object {
-            "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)"
-          } | Set-Content release/SHA256SUMS.txt -Encoding ascii
+          $files = @()
+          $files += Get-ChildItem release/*.exe | ForEach-Object FullName
+          $files += (Resolve-Path release/latest.yml).Path
+          $sums = foreach ($file in $files) {
+            "$((Get-FileHash $file -Algorithm SHA256).Hash.ToLower())  $(Split-Path $file -Leaf)"
+          }
+          $sums | Set-Content release/SHA256SUMS.txt -Encoding ascii
 
       - name: Publish GitHub Release
         shell: pwsh
@@ -57,5 +61,6 @@ jobs:
           $files = @()
           $files += Get-ChildItem release -Filter *.exe | ForEach-Object FullName
           $files += Get-ChildItem release -Filter *.blockmap | ForEach-Object FullName
+          $files += (Resolve-Path release/latest.yml).Path
           $files += (Resolve-Path release/SHA256SUMS.txt).Path
           gh release create "${{ github.ref_name }}" --title "TokenHUB ${{ github.ref_name }}" --generate-notes @files

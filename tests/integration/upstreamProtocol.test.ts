@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
+import { APP_VERSION } from '../../core/appInfo'
 import { createProviderFromPreset } from '../../core/providers/presets'
 import { buildCatalog } from '../../core/providers/catalog'
 import { RuntimeStore } from '../../core/router/runtime'
@@ -233,7 +234,7 @@ describe('anthropic-shaped upstream', () => {
     expect(first.status).toBe(200)
     expect(requests[0].path).toBe('/oc/v1/messages')
     expect(requests[0].headers['x-opencode-session']).toBe('sess-42')
-    expect(requests[0].headers['user-agent']).toBe('TokenHUB/0.1.0')
+    expect(requests[0].headers['user-agent']).toBe(`TokenHUB/${APP_VERSION}`)
     expect((JSON.parse(requests[0].body) as { model: string }).model).toBe('glm-5.3')
 
     const second = await fetch(`http://127.0.0.1:${port}/v1/messages`, {

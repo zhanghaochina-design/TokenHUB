@@ -46,5 +46,35 @@ export interface TokenHubApi {
   setLocalKey(key: string | null): Promise<void>
   setPaused(paused: boolean): Promise<void>
   getHistory(day: string, limit?: number): Promise<HistoryRecord[]>
+  getUpdateState(): Promise<UpdateState>
+  checkForUpdates(): Promise<UpdateState>
+  downloadUpdate(): Promise<UpdateState>
+  installUpdate(): Promise<void>
+  onUpdate(cb: (state: UpdateState) => void): () => void
   onState(cb: (state: AppState) => void): () => void
+}
+
+export type UpdatePhase =
+  | 'disabled'
+  | 'idle'
+  | 'checking'
+  | 'up-to-date'
+  | 'available'
+  | 'downloading'
+  | 'ready'
+  | 'error'
+
+export interface UpdateProgress {
+  percent: number
+  transferred: number
+  total: number
+}
+
+export interface UpdateState {
+  phase: UpdatePhase
+  currentVersion: string
+  availableVersion?: string
+  progress?: UpdateProgress
+  message?: string
+  checkedAt?: string
 }

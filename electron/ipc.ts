@@ -1,7 +1,8 @@
 import { app, ipcMain } from 'electron'
 import type { Hub } from '../core/hub'
-import type { ProviderInput, ProviderPatch, TokenHubApi } from '../core/ipc-types'
+import type { ProviderInput, ProviderPatch, TokenHubApi, UpdateState } from '../core/ipc-types'
 import type { AppState, ModelAlias, Settings } from '../core/types'
+import type { UpdateController } from './updateController'
 
 // 自启注册表写入可能因权限/平台差异失败；失败只降级为本次不生效，不能连带阻断设置保存。
 // 开发/E2E 的 Electron 可执行文件不是产品入口，写入系统启动项只会污染本机；仅安装版同步。
@@ -15,7 +16,12 @@ export function syncAutoStart(enabled: boolean): void {
   }
 }
 
-export function registerIpc(hub: Hub, broadcast: (state: AppState) => void): void {
+export function registerIpc(
+  hub: Hub,
+  broadcast: (state: AppState) => void,
+  updateController: UpdateController,
+  broadcastUpdate: (state: UpdateState) => void
+): void {
   hub.onStateChange(broadcast)
   ipcMain.handle('tokenhub:getState', () => hub.getState())
   ipcMain.handle('tokenhub:addProvider', (_e, input: ProviderInput) => hub.addProvider(input))
@@ -32,6 +38,11 @@ export function registerIpc(hub: Hub, broadcast: (state: AppState) => void): voi
   ipcMain.handle('tokenhub:setLocalKey', (_e, key: string | null) => hub.setLocalKey(key))
   ipcMain.handle('tokenhub:setPaused', (_e, paused: boolean) => hub.setPaused(paused))
   ipcMain.handle('tokenhub:getHistory', (_e, day: string, limit?: number) => hub.getHistory(day, limit))
+  ipcMain.handle('tokenhub:getUpdateState', () => updateController.getState())
+  ipcMain.handle('tokenhub:checkForUpdates', () => updateController.check())
+  ipcMain.handle('tokenhub:downloadUpdate', () => updateController.download())
+  ipcMain.handle('tokenhub:installUpdate', () => updateController.install())
+  updateController.subscribe(broadcastUpdate)
   ipcMain.handle('tokenhub:updateSettings', async (_e, patch: Partial<Settings>) => {
     await hub.updateSettings(patch)
     if (patch.autoStart !== undefined) syncAutoStart(patch.autoStart)

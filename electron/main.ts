@@ -1,9 +1,11 @@
 import { app, BrowserWindow, Tray, Menu, nativeImage, dialog, clipboard } from 'electron'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
+import { autoUpdater } from 'electron-updater'
 import { Hub } from '../core/hub'
 import { safeStorageCipher } from './safeStorageCipher'
 import { registerIpc, syncAutoStart } from './ipc'
+import { UpdateController, type UpdaterLike } from './updateController'
 import { circlePng } from '../core/trayIcon'
 import type { AppState } from '../core/types'
 
@@ -93,12 +95,27 @@ async function boot(): Promise<void> {
   })
   await hub.init()
 
-  registerIpc(hub, (state) => {
-    if (win && !win.isDestroyed() && !win.webContents.isDestroyed()) {
-      win.webContents.send('tokenhub:state', state)
+  const updateController = new UpdateController(
+    app.isPackaged ? (autoUpdater as unknown as UpdaterLike) : null,
+    app.getVersion(),
+    app.isPackaged
+  )
+
+  registerIpc(
+    hub,
+    (state) => {
+      if (win && !win.isDestroyed() && !win.webContents.isDestroyed()) {
+        win.webContents.send('tokenhub:state', state)
+      }
+      updateTray(state)
+    },
+    updateController,
+    (state) => {
+      if (win && !win.isDestroyed() && !win.webContents.isDestroyed()) {
+        win.webContents.send('tokenhub:updateState', state)
+      }
     }
-    updateTray(state)
-  })
+  )
 
   const state = hub.getState()
   const window = new BrowserWindow({

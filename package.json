@@ -1,6 +1,6 @@
 {
   "name": "tokenhub",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Local multi-provider LLM API router",
   "author": "TokenHUB contributors",
@@ -20,6 +20,7 @@
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "@hono/node-server": "^2.1.5",
+    "electron-updater": "^6.8.11",
     "hono": "^4.13.14",
     "lucide-react": "^1.62.0",
     "react": "^19.3.1",
@@ -44,9 +45,32 @@
   "build": {
     "appId": "com.tokenhub.app",
     "productName": "TokenHUB",
-    "directories": { "output": "release" },
-    "files": ["out/main/**/*", "out/preload/**/*", "out/renderer/**/*", "package.json"],
-    "win": { "target": ["nsis"], "icon": "build/icon.ico" },
-    "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true }
+    "artifactName": "TokenHUB-Setup-${version}.${ext}",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "out/main/**/*",
+      "out/preload/**/*",
+      "out/renderer/**/*",
+      "package.json"
+    ],
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "zhanghaochina-design",
+        "repo": "TokenHUB"
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
   }
 }

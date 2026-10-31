@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Check, Copy } from 'lucide-react'
+import type { UpdateState } from '../../core/ipc-types'
 import type { AppState, Settings } from '../../core/types'
 import { Toast } from '../components/Toast'
 import { errorMessage } from '../lib/format'
+import { useUpdateState } from '../lib/useUpdateState'
 
 interface SettingsPageProps {
   state: AppState
@@ -121,6 +123,9 @@ export function SettingsPage({ state }: SettingsPageProps) {
   const [toast, setToast] = useState<string | null>(null)
   const [copied, setCopied] = useState<string | null>(null)
   const keyInputRef = useRef<HTMLInputElement>(null)
+  const update = useUpdateState()
+  const updateBusy = update?.phase === 'checking' || update?.phase === 'downloading'
+  const updateDisabled = !update || update.phase === 'disabled'
 
   // 只跟随已保存的值同步，用户正在输入时不会被无关的状态推送覆盖。
   useEffect(() => {
@@ -268,6 +273,61 @@ export function SettingsPage({ state }: SettingsPageProps) {
       setCopied(label)
     } catch {
       setToast('复制失败，请手动选择并复制。')
+    }
+  }
+
+  function updateStatus(state: UpdateState | null): string {
+    if (!state) return '读取中'
+    switch (state.phase) {
+      case 'disabled':
+        return '仅安装版'
+      case 'idle':
+        return '未检查'
+      case 'checking':
+        return '检查中'
+      case 'up-to-date':
+        return '已是最新'
+      case 'available':
+        return `发现 v${state.availableVersion ?? ''}`
+      case 'downloading':
+        return '下载中'
+      case 'ready':
+        return '等待重启'
+      case 'error':
+        return '检查失败'
+      default:
+        return '未知'
+    }
+  }
+
+  function formatBytes(bytes: number): string {
+    if (bytes <= 0) return '0 B'
+    const units = ['B', 'KB', 'MB', 'GB']
+    const index = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)))
+    return `${(bytes / 1024 ** index).toFixed(index === 0 ? 0 : 1)} ${units[index]}`
+  }
+
+  async function checkUpdates() {
+    try {
+      await window.tokenhub.checkForUpdates()
+    } catch (error) {
+      setToast(`检查更新失败：${errorMessage(error)}`)
+    }
+  }
+
+  async function downloadUpdate() {
+    try {
+      await window.tokenhub.downloadUpdate()
+    } catch (error) {
+      setToast(`下载更新失败：${errorMessage(error)}`)
+    }
+  }
+
+  async function installUpdate() {
+    try {
+      await window.tokenhub.installUpdate()
+    } catch (error) {
+      setToast(`安装更新失败：${errorMessage(error)}`)
     }
   }
 
@@ -439,6 +499,82 @@ export function SettingsPage({ state }: SettingsPageProps) {
               disabled={pending}
               onChange={(next) => void saveToggle({ closeToTray: next }, '关闭到托盘')}
             />
+          </div>
+        </Card>
+
+        <Card
+          id="settings-update-heading"
+          title="软件更新"
+          description="手动检查 GitHub Release；不会在后台自动请求网络。"
+        >
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-3 rounded-md bg-canvas/60 px-3 py-2.5 ring-1 ring-inset ring-line">
+              <div className="min-w-0">
+                <p className="text-xs font-medium text-muted">当前版本</p>
+                <p className="mt-0.5 font-mono text-sm text-ink">v{update?.currentVersion ?? '—'}</p>
+              </div>
+              <span className="rounded-full bg-surface px-2.5 py-1 text-xs font-medium text-muted ring-1 ring-inset ring-line">
+                {updateStatus(update)}
+              </span>
+            </div>
+
+            {update?.phase === 'downloading' && update.progress && (
+              <div>
+                <div
+                  className="h-2 overflow-hidden rounded-full bg-neutral-200"
+                  role="progressbar"
+                  aria-valuenow={update.progress.percent}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                >
+                  <div
+                    className="h-full rounded-full bg-accent transition-[width]"
+                    style={{ width: `${update.progress.percent}%` }}
+                  />
+                </div>
+                <p className="mt-1 text-xs text-muted">
+                  {update.progress.percent}% · {formatBytes(update.progress.transferred)} /{' '}
+                  {formatBytes(update.progress.total)}
+                </p>
+              </div>
+            )}
+
+            {update?.message && (
+              <p role="alert" className="text-xs leading-5 text-red-600">
+                {update.message}
+              </p>
+            )}
+
+            {updateDisabled && (
+              <p className="text-xs leading-5 text-muted">
+                仅安装版支持更新检查；开发与测试环境不会请求 GitHub。
+              </p>
+            )}
+
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void checkUpdates()}
+                disabled={updateDisabled || updateBusy}
+                className={SECONDARY_BUTTON}
+              >
+                {update?.phase === 'checking' ? '检查中…' : '检查更新'}
+              </button>
+              {update?.phase === 'available' && (
+                <button type="button" onClick={() => void downloadUpdate()} className={PRIMARY_BUTTON}>
+                  下载 v{update.availableVersion}
+                </button>
+              )}
+              {update?.phase === 'ready' && (
+                <button type="button" onClick={() => void installUpdate()} className={PRIMARY_BUTTON}>
+                  重启并安装
+                </button>
+              )}
+            </div>
+
+            {update?.checkedAt && (
+              <p className="text-xs text-muted">上次检查：{new Date(update.checkedAt).toLocaleString()}</p>
+            )}
           </div>
         </Card>
 
