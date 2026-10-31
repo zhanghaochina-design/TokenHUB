@@ -2,6 +2,7 @@ node_modules/
 out/
 dist/
 release/
+release-dist*/
 coverage/
 test-results/
 playwright-report/
