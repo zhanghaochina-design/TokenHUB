@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'">
 <title>把 DeepSeek V4.1 Flash 接进 Claude Code · TokenHUB 实战教程</title>
-<meta name="description" content="TokenHUB 实战教程：下载安装 TokenHUB 与 Claude Code 桌面版，开启 Developer Mode 或用 CLI 的 settings.json 接入本地网关；配置 OpenCode Go、DeepSeek、CommandCode Goat，把 DeepSeek V4.1 Flash 统一成 Claude Code 能识别的 claude-sonnet-4-5，并验证路由与故障切换。">
+<meta name="description" content="TokenHUB v0.1.1 实战教程：下载安装 TokenHUB 与 Claude Code 桌面版，开启 Developer Mode 或用 CLI 的 settings.json 接入本地网关；配置 OpenCode Go、DeepSeek、CommandCode Goat，把 DeepSeek V4.1 Flash 统一成 Claude Code 能识别的 claude-sonnet-4-5，并验证路由、故障切换与手动更新。">
 <style>
   :root{
     --canvas:#f5f7fa;
@@ -347,7 +347,7 @@
       <a href="#connect">接入 Claude</a>
       <a href="#cheatsheet">速查</a>
     </nav>
-    <span class="top-meta">v0.1.0 · 2026-10-30</span>
+    <span class="top-meta">v0.1.1 · 2026-10-31</span>
   </div>
   <div class="progress" aria-hidden="true"><span id="progressBar"></span></div>
 </header>
@@ -410,7 +410,7 @@
         </p>
         <div class="meta-row">
           <span>Windows 10 / 11</span>
-          <span>TokenHUB v0.1.0</span>
+          <span>TokenHUB v0.1.1</span>
           <span>Claude Code 桌面版 / CLI</span>
           <span>约 15 分钟</span>
           <span>无需 Anthropic 订阅</span>
@@ -503,7 +503,7 @@
               <tr>
                 <td><strong>TokenHUB 安装包</strong></td>
                 <td>本地网关</td>
-                <td>Windows 安装包，当前版本 <span class="mono">0.1.0</span>；从项目发布页获取。</td>
+                <td>Windows 安装包，当前版本 <span class="mono">0.1.1</span>；从项目 GitHub Release 页面获取。</td>
               </tr>
               <tr>
                 <td><strong>Claude Code 桌面版 / CLI</strong></td>
@@ -559,7 +559,7 @@
             <span class="step-no">1</span>
             <div>
               <h4>下载安装包</h4>
-              <p>打开项目发布页，下载 <span class="inline-code">TokenHUB Setup 0.1.0.exe</span>。当前只提供 Windows 安装包，没有 macOS / Linux 版本。</p>
+              <p>打开项目 GitHub Release 页面，下载 <span class="inline-code">TokenHUB-Setup-0.1.1.exe</span>。当前只提供 Windows 安装包，没有 macOS / Linux 版本。</p>
             </div>
           </div>
           <div class="step-item">
@@ -567,7 +567,7 @@
             <div>
               <h4>安装并启动</h4>
               <p>双击安装包，按向导选择目录并完成安装。启动后窗口出现即表示主进程已运行；关闭窗口默认最小化到托盘，服务继续监听。</p>
-              <p>如果 Windows 弹出「已保护你的电脑」，确认文件来自项目发布页后，点「更多信息」→「仍要运行」。</p>
+              <p>如果 Windows 弹出「已保护你的电脑」，确认文件来自项目 GitHub Release 页面后，点「更多信息」→「仍要运行」。</p>
             </div>
           </div>
           <div class="step-item">
@@ -592,11 +592,24 @@
               <p>默认关闭，本机程序可以直接访问。开启后，所有 <span class="inline-code">/v1</span> 请求都要带 Bearer 或 <span class="inline-code">x-api-key</span>；桌面版 Gateway 的 API key、CLI 的 <span class="mono">ANTHROPIC_AUTH_TOKEN</span> 都要填这个 Key。本文先按关闭处理，配置里用占位值。</p>
             </div>
           </div>
+          <div class="step-item">
+            <span class="step-no">6</span>
+            <div>
+              <h4>以后升级：手动检查更新</h4>
+              <p>进入「设置」→「软件更新」，点「检查更新」。TokenHUB 只在你点击时请求 GitHub Release，<strong>不会在后台自动检查或下载</strong>；发现新版本后点「下载 vX」，完成后再点「重启并安装」。</p>
+              <p>更新检查只在安装版启用，开发与测试环境不会请求 GitHub。0.1.1 起安装包名为 <span class="mono">TokenHUB-Setup-0.1.1.exe</span>（连字符、无空格）。</p>
+            </div>
+          </div>
         </div>
 
         <div class="callout">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 8h.01M11 12h1v4h1"></path></svg>
           <p><strong>Key 放在哪里：</strong>供应商 Key 与本地访问 Key 都保存在 <span class="mono">%APPDATA%\TokenHUB\secrets.bin</span>，由 Windows DPAPI 加密。界面不回显，日志和历史也不落 Key。不要把 <span class="mono">secrets.bin</span> 复制到另一台机器或另一个数据目录，通常无法解密。</p>
+        </div>
+
+        <div class="callout ok">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"></path></svg>
+          <p><strong>更新资产要对得上：</strong>GitHub Release 里应同时有 <span class="mono">latest.yml</span>、<span class="mono">TokenHUB-Setup-0.1.1.exe</span>、blockmap 与 <span class="mono">SHA256SUMS.txt</span>。缺少 <span class="mono">latest.yml</span> 或安装包名不一致时，设置页能查到版本也可能下载失败。</p>
         </div>
       </section>
 
@@ -777,7 +790,7 @@ npm install -g @anthropic-ai/claude-code</code></pre>
           <p><strong>不要填错模型：</strong>OpenCode Go 预设对应的是 Go 订阅的 <span class="mono">deepseek-v4.1-flash</span>（付费版，1M 上下文）。<span class="mono">deepseek-v4.1-flash-free</span> 是 Zen 渠道的免费版（约 200K 上下文），不要把它填进这个 Go 预设；端点和权益都不是一回事。</p>
         </div>
 
-        <p>OpenCode Go 的额度卡会显示滚动 / 周 / 月三个窗口；具体上限由套餐和模型决定。TokenHUB 每 60 秒探测一次（可在设置里调整），额度耗尽会自动进入冷却并切到下一家。</p>
+        <p>OpenCode Go 的额度卡会显示 5 小时 / 周 / 月三个窗口；具体上限由套餐和模型决定。额度探针默认每 5 分钟（300 秒）探测一次，可在设置页调整为 10–3600 秒；额度耗尽会自动进入冷却并切到下一家。</p>
 
         <h3 id="provider-deepseek">5.2 DeepSeek：同模型直连兜底</h3>
         <p>DeepSeek 官方同时提供 OpenAI 兼容的 <span class="mono">/v1</span> 和 Anthropic 兼容的 <span class="mono">/anthropic/v1</span>。它的作用是：当 OpenCode Go 额度用完、限流或临时不可用时，Claude Code 仍然能用到同一个 DeepSeek V4.1 Flash，只是换成按量计费。</p>
@@ -808,7 +821,7 @@ npm install -g @anthropic-ai/claude-code</code></pre>
             <span class="step-no">4</span>
             <div>
               <h4>保存并观察余额</h4>
-              <p>保存后概览会出现余额卡。DeepSeek 余额最多每 5 分钟探测一次，避免频繁请求；余额刷新慢是正常现象。</p>
+              <p>保存后概览会出现余额卡。余额随额度探针刷新，默认每 5 分钟一次；探测失败会按 30 秒到 15 分钟退避重试，不会永久停用。余额刷新慢是正常现象。</p>
             </div>
           </div>
         </div>
@@ -1318,7 +1331,7 @@ setx ANTHROPIC_MODEL "claude-sonnet-4-5"</code></pre>
         <details>
           <summary>DeepSeek 余额卡很久不更新</summary>
           <div class="details-body">
-            <p>DeepSeek 余额最多每 5 分钟探测一次，这是为了避免频繁请求。额度刷新间隔设置只影响其他供应商；余额低于阈值时会被视为耗尽。探针失败不会改变路由状态，连续失败 3 次会暂停该探针。</p>
+            <p>额度探针默认每 5 分钟刷新一次，可在设置页调整为 10–3600 秒。探测失败不会改变路由状态，会按 30s / 1m / 2m / 4m / 8m / 15m 退避重试；任何一次成功（含手动刷新）都会清零失败计数，不会永久停用探针。余额低于阈值时会被视为耗尽。</p>
           </div>
         </details>
 
@@ -1326,6 +1339,13 @@ setx ANTHROPIC_MODEL "claude-sonnet-4-5"</code></pre>
           <summary>端口 8787 被占用 / 改了端口</summary>
           <div class="details-body">
             <p>应用仍然会打开，只是服务未启动。到「设置」换一个可用端口并保存，再同步改客户端：CLI 改 <span class="mono">ANTHROPIC_BASE_URL</span>，桌面版改 Gateway base URL，然后重启客户端。配置、Key 和历史不受影响；新端口启动失败时旧端口会继续服务。</p>
+          </div>
+        </details>
+
+        <details>
+          <summary>设置页的「检查更新」不可用 / 下载失败</summary>
+          <div class="details-body">
+            <p>只有安装版启用更新检查，开发与测试环境不会请求 GitHub；更新只能手动触发，不会后台自动检查。如果已经发现新版本但下载失败，确认 GitHub Release 里同时有 <span class="mono">latest.yml</span>、<span class="mono">TokenHUB-Setup-&lt;版本&gt;.exe</span> 与 blockmap；缺少 <span class="mono">latest.yml</span> 或安装包名不一致时，更新器会找不到资产。</p>
           </div>
         </details>
 
@@ -1376,7 +1396,7 @@ setx ANTHROPIC_MODEL "claude-sonnet-4-5"</code></pre>
           <li>只覆盖 Chat 与 Messages：不代理 Embeddings、Rerank、Realtime、Batch 等端点。</li>
           <li>单机单用户：没有团队配额、审计日志或多租户隔离。</li>
           <li>当前只发布 Windows 安装包；macOS / Linux 尚未打包验证。</li>
-          <li>0.1.0 早期版本：配置结构与界面仍可能调整。</li>
+          <li>0.1.1 版本：配置结构与界面仍可能调整。</li>
         </ul>
 
         <div class="callout warn">
@@ -1465,7 +1485,7 @@ setx ANTHROPIC_MODEL "claude-sonnet-4-5"</code></pre>
 
       <footer class="footer">
         <p><strong>TokenHUB · 本地多供应商大模型网关</strong></p>
-        <p>本文基于 TokenHUB v0.1.0 与 2026-10-30 的供应商接口整理。模型 ID、额度规则、Claude Code 环境变量可能随版本变化，请以应用内「模型」页和供应商官方文档为准。</p>
+        <p>本文基于 TokenHUB v0.1.1 与 2026-10-31 的供应商接口整理。模型 ID、额度规则、Claude Code 环境变量可能随版本变化，请以应用内「模型」页和供应商官方文档为准。</p>
         <p>文章不含截图；界面文字与字段名以当前中文版应用为准。仅监听 <span class="mono">127.0.0.1</span>，Key 由 Windows DPAPI 加密保存。</p>
         <a class="back-top" href="#top">回到顶部 ↑</a>
       </footer>

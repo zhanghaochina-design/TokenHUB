@@ -382,7 +382,7 @@
       <a href="#security">安全</a>
       <a href="#faq">FAQ</a>
     </nav>
-    <span class="version">v0.1.0</span>
+    <span class="version">v0.1.1</span>
   </div>
 </header>
 
@@ -803,14 +803,14 @@
     <div class="wrap">
       <div class="section-head">
         <p class="eyebrow">04 · 设置</p>
-        <h2 id="settings-title">端口、访问保护与托盘行为</h2>
-        <p class="lead">设置页决定服务怎么被访问、怎么随系统启动，以及历史与额度探针的节奏。</p>
+        <h2 id="settings-title">端口、访问保护、更新与托盘行为</h2>
+        <p class="lead">设置页决定服务怎么被访问、怎么随系统启动、怎么更新，以及历史与额度探针的节奏。</p>
       </div>
 
       <figure class="shot">
         <img src="{{IMG_SETTINGS}}" width="1440" height="967" decoding="async" alt="设置页：服务端口、本地访问 Key、启动与托盘、日志与额度、连接信息">
         <figcaption class="caption">
-          <span>设置页：端口、本地访问 Key、启动与托盘、历史保留与额度刷新。截图中的 18799 为演示端口。</span>
+          <span>设置页：端口、本地访问 Key、启动与托盘、历史保留与额度刷新。截图中的 18799 与额度间隔为演示值，实际默认以当前版本为准。</span>
           <span class="pill">演示数据</span>
         </figcaption>
       </figure>
@@ -832,6 +832,11 @@
           <h3>日志与额度</h3>
           <p>历史保留 7 / 30 / 90 天或永久；额度刷新 10–3600 秒，默认 300 秒（5 分钟）。</p>
         </div>
+      </div>
+
+      <div class="callout">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 8h.01M11 12h1v4h1"></path></svg>
+        <div><strong>0.1.1 新增「软件更新」：</strong>到设置页手动检查 GitHub Release，不会在后台自动请求网络；发现新版本后依次下载并重启安装。更新检查只在安装版启用，开发与测试环境不会请求 GitHub。</div>
       </div>
 
       <figure class="shot" style="margin-top:18px">
@@ -1123,6 +1128,10 @@ ANTHROPIC_MODEL=claude-sonnet-4-5</code></pre>
           <p>默认 300 秒（5 分钟），可在设置页调整为 10–3600 秒。探测失败不会改变路由状态，会按 30 秒到 15 分钟的指数退避重试，任何一次成功都会恢复正常频率，不会永久停用探针。</p>
         </details>
         <details>
+          <summary>怎么更新 TokenHUB？</summary>
+          <p>进入「设置」→「软件更新」→「检查更新」。更新只在你点击时请求 GitHub Release，不会后台自动检查或下载；发现新版本后按提示下载并重启安装。只有安装版启用更新检查，开发与测试环境不会请求 GitHub。发布资产需要包含 latest.yml、安装包、blockmap 与 SHA256SUMS.txt。</p>
+        </details>
+        <details>
           <summary>流式输出中途断了会切换吗？</summary>
           <p>不会。首字节之后不再切换供应商，避免已经输出的内容被另一段回答覆盖。上游截断会按瞬态失败从 10 秒起冷却，连续失败逐步退避到 60 秒；客户端自己断开不算供应商故障。</p>
         </details>
@@ -1158,7 +1167,7 @@ ANTHROPIC_MODEL=claude-sonnet-4-5</code></pre>
         <div class="limit"><span aria-hidden="true">•</span><div><b>只覆盖 Chat 与 Messages。</b>不代理 Embeddings、Rerank、Realtime、Batch 等端点。</div></div>
         <div class="limit"><span aria-hidden="true">•</span><div><b>单机单用户。</b>没有团队配额、审计日志或多租户隔离。</div></div>
         <div class="limit"><span aria-hidden="true">•</span><div><b>协议能力依赖扫描。</b>未扫描的组合按预设默认处理，必要时需手动验证。</div></div>
-        <div class="limit"><span aria-hidden="true">•</span><div><b>0.1.0 早期版本。</b>配置结构与界面仍可能调整；当前只发布 Windows 安装包。</div></div>
+        <div class="limit"><span aria-hidden="true">•</span><div><b>0.1.1 版本。</b>配置结构与界面仍可能调整；当前只发布 Windows 安装包。</div></div>
         <div class="limit"><span aria-hidden="true">•</span><div><b>不做内容处理。</b>不缓存、不改写、不审核提示词与回复。</div></div>
       </div>
     </div>
@@ -1180,7 +1189,7 @@ ANTHROPIC_MODEL=claude-sonnet-4-5</code></pre>
       TokenHUB
     </div>
     <div class="footer-meta">
-      v0.1.0 · 文档更新于 2026-10-30 · 截图来自演示数据（演示端口 18799）<br>
+      v0.1.1 · 文档更新于 2026-10-31 · 截图来自演示数据（演示端口 18799）<br>
       本地优先 · 仅监听 127.0.0.1 · Key 由 Windows DPAPI 加密保存
     </div>
   </div>
