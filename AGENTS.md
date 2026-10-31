@@ -10,6 +10,7 @@
 - `npm run build`：electron-vite 构建到 `out/`
 - `npx playwright test`：Electron E2E（先构建）
 - `npm run dist`：构建并打 NSIS 安装包到 `release/`
+- 发布：`package.json` 的 `version` 必须与推送的 tag 一致（如 `0.1.0` 对应 `v0.1.0`）；推送 tag 触发 `.github/workflows/release.yml`，在 Windows runner 上跑类型检查、测试与打包，并创建 GitHub Release（附 exe、blockmap 与 `SHA256SUMS.txt`）
 - `node docs/readme/build.mjs`：由 `docs/readme/` 的模板与截图生成根目录 `README.html`
 - 首次运行 Electron 需要二进制；网络不通时用 `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/`
 
@@ -42,6 +43,7 @@
 - 端口切换必须先持久化并广播新端口，再后台关闭旧监听；`startServer` 的 `close()` 先断空闲连接、2s 宽限后强制断开，任何情况下都 resolve。
 - 未知模型（本地目录没有）与上游 404 共用同一个 60s 限流、在途合并的模型发现刷新。
 - `build.files` 只打包 `out/main`、`out/preload`、`out/renderer` 与 `package.json`；E2E 截图写在 `out/*.png`，故意不进安装包。
+- 安装包与 exe 图标来自 `build/icon.ico`，`build/icon.png` 是源图；改图标后必须本地 `npm run dist` 并确认无签名警告以外的打包错误。
 - 未得到用户明确要求，不执行 `git add` / `git commit` / `git push`。
 - 打包后若 `release/win-unpacked*` 被外部句柄锁定，需在句柄释放/重启后清理再重跑 `npm run dist`；可用干净的 `--config.directories.output=<临时目录>` 生成安装包后回填。若换目录仍在移动 `default_app.asar` 时 `EBUSY`，用本地解压运行时绕过解压步骤：`electron-builder --win nsis --config.directories.output=<临时目录> --config.electronDist=node_modules/electron/dist`。
 

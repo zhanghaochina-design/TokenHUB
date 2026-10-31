@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "Local multi-provider LLM API router",
+  "author": "TokenHUB contributors",
   "main": "out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
@@ -45,7 +46,7 @@
     "productName": "TokenHUB",
     "directories": { "output": "release" },
     "files": ["out/main/**/*", "out/preload/**/*", "out/renderer/**/*", "package.json"],
-    "win": { "target": ["nsis"] },
+    "win": { "target": ["nsis"], "icon": "build/icon.ico" },
     "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true }
   }
 }
