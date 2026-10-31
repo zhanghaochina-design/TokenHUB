@@ -74,7 +74,7 @@ test('scans provider protocol compatibility and persists badges', async () => {
     await win.getByRole('button', { name: '添加供应商' }).click()
     await win.getByLabel('预设').selectOption('custom')
     await win.getByLabel('名称').fill('Fake Upstream')
-    await win.getByLabel('Base URL').fill(`${upstream.url}/v1`)
+    await win.getByLabel('Base URL', { exact: true }).fill(`${upstream.url}/v1`)
     await win.getByLabel('API Key').fill('sk-test')
     await win.getByLabel('手动模型').fill('m')
     await win.getByRole('button', { name: '保存' }).click()
