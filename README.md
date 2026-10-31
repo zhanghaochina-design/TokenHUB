@@ -4,6 +4,8 @@
 
 TokenHUB 是运行在 Windows 桌面的本地 API 网关。它把 OpenCode Go、DeepSeek、CommandCode Goat 与任意 OpenAI / Anthropic 兼容服务合并到同一个地址（默认 `http://127.0.0.1:8787`），按供应商优先级路由、额度耗尽自动切换，并让 Claude Code 与 OpenAI 客户端共用同一套模型目录。Key 只保存在本机。
 
+[在线文档](https://zhanghaochina-design.github.io/TokenHUB/) · [实战教程](https://zhanghaochina-design.github.io/TokenHUB/docs/guide/claude-code-deepseek.html)
+
 ![TokenHUB 概览页](docs/readme/assets/overview.png)
 
 ## 特性
@@ -27,7 +29,7 @@ TokenHUB 是运行在 Windows 桌面的本地 API 网关。它把 OpenCode Go、
 
 ### 1. 安装并启动
 
-从 [Releases](../../releases/latest) 下载 `TokenHUB Setup x.y.z.exe` 并安装。启动后服务监听 `127.0.0.1:8787`，关闭窗口默认最小化到托盘，服务继续运行。
+从 [Releases](../../releases/latest) 下载 `TokenHUB-Setup-x.y.z.exe` 并安装。启动后服务监听 `127.0.0.1:8787`，关闭窗口默认最小化到托盘，服务继续运行。
 
 ### 2. 添加供应商
 
@@ -94,6 +96,7 @@ E2E 测试需要先构建：`npm run build && npx playwright test`。
 
 - `README.html`：带截图的完整说明，可在浏览器直接打开。
 - `docs/readme/`：HTML README 的模板、截图与生成脚本；产物是根目录 `README.html`。
+- [把 DeepSeek V4.1 Flash 接进 Claude Code](docs/guide/claude-code-deepseek.html)：从安装到路由验证的实战教程。
 
 ## License
 

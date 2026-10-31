@@ -1,0 +1,1535 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'">
+<title>把 DeepSeek V4.1 Flash 接进 Claude Code · TokenHUB 实战教程</title>
+<meta name="description" content="TokenHUB 实战教程：下载安装 TokenHUB 与 Claude Code 桌面版，开启 Developer Mode 或用 CLI 的 settings.json 接入本地网关；配置 OpenCode Go、DeepSeek、CommandCode Goat，把 DeepSeek V4.1 Flash 统一成 Claude Code 能识别的 claude-sonnet-4-5，并验证路由与故障切换。">
+<style>
+  :root{
+    --canvas:#f5f7fa;
+    --surface:#ffffff;
+    --surface-soft:#fbfcfd;
+    --line:#e3e7ed;
+    --line-strong:#d5dbe4;
+    --ink:#171a20;
+    --muted:#5d6675;
+    --muted-strong:#444c59;
+    --accent:#2563eb;
+    --accent-strong:#1d4ed8;
+    --accent-soft:#eff6ff;
+    --accent-line:#bfdbfe;
+    --ok:#047857;
+    --ok-soft:#ecfdf5;
+    --ok-line:#a7f3d0;
+    --warn:#92400e;
+    --warn-soft:#fffbeb;
+    --warn-line:#fde68a;
+    --danger:#b91c1c;
+    --danger-soft:#fef2f2;
+    --danger-line:#fecaca;
+    --code-bg:#0f172a;
+    --code-line:#1e293b;
+    --radius:16px;
+    --shadow:0 1px 2px rgba(16,24,40,.04),0 18px 44px -28px rgba(16,24,40,.28);
+    --sans:"Segoe UI","Microsoft YaHei UI","Microsoft YaHei",system-ui,-apple-system,sans-serif;
+    --mono:"Cascadia Code","SFMono-Regular",Consolas,"Liberation Mono",monospace;
+    --max:1180px;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0;
+    background:var(--canvas);
+    color:var(--ink);
+    font-family:var(--sans);
+    font-size:15.5px;
+    line-height:1.78;
+    -webkit-font-smoothing:antialiased;
+    text-rendering:optimizeLegibility;
+  }
+  a{color:var(--accent-strong);text-decoration:none}
+  a:hover{text-decoration:underline;text-underline-offset:3px}
+  :focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+  ::selection{background:rgba(37,99,235,.16)}
+  code{font-family:var(--mono);font-size:.92em}
+  .mono{font-family:var(--mono);font-size:.92em}
+  .wrap{width:min(calc(100% - 40px),var(--max));margin-inline:auto}
+  .skip{position:absolute;left:-9999px;top:0;background:#fff;padding:8px 12px;z-index:100}
+  .skip:focus{left:12px;top:12px}
+
+  /* top bar */
+  .topbar{
+    position:sticky;top:0;z-index:60;
+    background:rgba(245,247,250,.86);
+    border-bottom:1px solid rgba(227,231,237,.9);
+    backdrop-filter:blur(14px);
+    -webkit-backdrop-filter:blur(14px);
+  }
+  .topbar .wrap{display:flex;align-items:center;gap:20px;height:62px}
+  .brand{display:flex;align-items:center;gap:10px;color:var(--ink);font-weight:700;letter-spacing:-.01em}
+  .brand:hover{text-decoration:none}
+  .brand-mark{
+    width:31px;height:31px;border-radius:9px;display:grid;place-items:center;color:#fff;
+    background:var(--accent);box-shadow:0 6px 16px -6px rgba(37,99,235,.7);flex:none;
+  }
+  .brand-mark svg{width:17px;height:17px}
+  .brand-name{font-size:13.5px;line-height:1.15}
+  .brand-name small{display:block;font-size:10.5px;font-weight:500;color:var(--muted);letter-spacing:.02em}
+  .topnav{display:flex;align-items:center;gap:2px;margin-left:auto}
+  .topnav a{padding:7px 9px;border-radius:8px;color:var(--muted);font-size:12.5px;font-weight:600}
+  .topnav a:hover{background:#fff;color:var(--ink);text-decoration:none}
+  .top-meta{flex:none;font-size:11px;color:var(--muted);border:1px solid var(--line);background:#fff;border-radius:999px;padding:3px 9px}
+  .progress{position:absolute;left:0;right:0;bottom:-1px;height:2px;background:transparent}
+  .progress span{display:block;height:100%;width:0;background:var(--accent);transition:width .1s linear}
+
+  /* layout */
+  .layout{
+    display:grid;
+    grid-template-columns:236px minmax(0,1fr);
+    gap:38px;
+    align-items:start;
+    padding:34px 0 76px;
+  }
+  .toc{
+    position:sticky;top:86px;
+    background:var(--surface);
+    border:1px solid var(--line);
+    border-radius:14px;
+    padding:16px 14px;
+    box-shadow:0 1px 2px rgba(16,24,40,.03);
+  }
+  .toc-title{margin:0 0 10px;font-size:10.5px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+  .toc ol{list-style:none;margin:0;padding:0;display:grid;gap:1px}
+  .toc a{
+    display:block;padding:6px 9px;border-radius:7px;color:var(--muted);
+    font-size:12.5px;line-height:1.5;transition:background .15s,color .15s;
+  }
+  .toc a:hover{background:var(--canvas);color:var(--ink);text-decoration:none}
+  .toc a.active{background:var(--accent-soft);color:var(--accent-strong);font-weight:600}
+  .toc .sub a{padding-left:20px;font-size:12px}
+  .toc-note{margin:13px 4px 0;padding-top:12px;border-top:1px solid var(--line);color:var(--muted);font-size:11px;line-height:1.6}
+  .toc-mobile{display:none}
+
+  article{
+    min-width:0;
+    background:var(--surface);
+    border:1px solid var(--line);
+    border-radius:20px;
+    box-shadow:var(--shadow);
+    padding:44px 50px 52px;
+  }
+  .hero{padding-bottom:30px}
+  .eyebrow{margin:0;font-size:11px;font-weight:750;letter-spacing:.14em;text-transform:uppercase;color:var(--accent-strong)}
+  h1{
+    margin:12px 0 0;font-size:clamp(30px,4.2vw,46px);line-height:1.14;letter-spacing:-.035em;font-weight:750;
+  }
+  h1 .accent{
+    background:linear-gradient(92deg,#1d4ed8 0%,#2563eb 52%,#0891b2 100%);
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+  }
+  .lead{margin:17px 0 0;color:var(--muted-strong);font-size:16.5px;line-height:1.75;max-width:760px}
+  .meta-row{display:flex;flex-wrap:wrap;gap:8px 15px;margin-top:18px;color:var(--muted);font-size:12px}
+  .meta-row span{display:inline-flex;align-items:center;gap:6px}
+  .meta-row span::before{content:"";width:4px;height:4px;border-radius:50%;background:#c3cad5}
+  .goal-box{
+    margin-top:24px;padding:18px 20px;border:1px solid var(--accent-line);
+    background:linear-gradient(180deg,#f8fbff,#f3f8ff);border-radius:13px;
+  }
+  .goal-box h2{margin:0 0 8px;font-size:13.5px;letter-spacing:-.01em}
+  .goal-box ul{margin:0;padding-left:18px;color:var(--muted-strong);font-size:13.5px;line-height:1.7}
+  .goal-box li+li{margin-top:5px}
+  .goal-box strong{color:var(--ink)}
+
+  section[id]{scroll-margin-top:84px}
+  .block{padding:44px 0 0;margin-top:44px;border-top:1px solid var(--line)}
+  h2{margin:0 0 10px;font-size:clamp(23px,2.6vw,29px);line-height:1.25;letter-spacing:-.025em}
+  .section-kicker{margin:0 0 7px;font-size:10.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--accent-strong)}
+  .section-lead{margin:0 0 22px;color:var(--muted);font-size:14.5px;line-height:1.72}
+  h3{margin:30px 0 9px;font-size:17.5px;line-height:1.35;letter-spacing:-.015em;scroll-margin-top:84px}
+  h4{margin:22px 0 7px;font-size:14.5px;line-height:1.4;letter-spacing:-.01em}
+  p{margin:0 0 12px;color:var(--muted-strong)}
+  p:last-child{margin-bottom:0}
+  strong{color:var(--ink);font-weight:650}
+  .small{font-size:12.5px;color:var(--muted);line-height:1.65}
+
+  /* flow */
+  .flow{
+    display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1.15fr) auto minmax(0,1.05fr);
+    gap:10px;align-items:center;margin:22px 0 14px;
+  }
+  .flow-node{
+    background:var(--surface-soft);border:1px solid var(--line);border-radius:12px;padding:12px 14px;min-width:0;
+  }
+  .flow-node strong{display:block;font-size:13px;line-height:1.35}
+  .flow-node span{display:block;margin-top:3px;color:var(--muted);font-size:10.8px;line-height:1.45;font-family:var(--mono)}
+  .flow-node.hub{border-color:var(--accent-line);background:#f5f9ff;box-shadow:0 7px 20px -16px rgba(37,99,235,.6)}
+  .flow-stack{display:grid;gap:7px}
+  .flow-stack .flow-node{padding:9px 12px}
+  .flow-stack .flow-node span{font-size:10.5px}
+  .flow-arrow{color:#a9b3c2;font-size:18px;line-height:1;text-align:center}
+  .flow-note{margin:0;color:var(--muted);font-size:11.5px;text-align:center}
+
+  /* cards & callouts */
+  .mini-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:20px 0}
+  .mini{background:var(--surface-soft);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+  .mini h3{margin:0 0 4px;font-size:13.5px}
+  .mini p{margin:0;color:var(--muted);font-size:12.6px;line-height:1.65}
+  .callout{
+    display:flex;gap:10px;align-items:flex-start;margin:18px 0;padding:13px 15px;
+    border-radius:11px;background:var(--accent-soft);border:1px solid var(--accent-line);
+    color:#1e3a8a;font-size:13.2px;line-height:1.68;
+  }
+  .callout svg{flex:none;width:16px;height:16px;margin-top:2px}
+  .callout p{margin:0;color:inherit;min-width:0;overflow-wrap:anywhere}
+  .callout strong{color:#1e3a8a}
+  .callout.warn{background:var(--warn-soft);border-color:var(--warn-line);color:#78350f}
+  .callout.warn strong{color:#78350f}
+  .callout.ok{background:var(--ok-soft);border-color:var(--ok-line);color:#064e3b}
+  .callout.ok strong{color:#064e3b}
+
+  /* steps */
+  .step-list{display:grid;gap:12px;margin:20px 0}
+  .step-item{
+    display:grid;grid-template-columns:36px minmax(0,1fr);gap:14px;min-width:0;
+    background:var(--surface-soft);border:1px solid var(--line);border-radius:13px;padding:17px 18px;
+  }
+  .step-item > div{min-width:0}
+  .step-no{
+    width:31px;height:31px;border-radius:50%;display:grid;place-items:center;
+    background:var(--accent-soft);color:var(--accent-strong);font-weight:750;font-size:12.5px;
+  }
+  .step-item h4{margin:1px 0 4px;font-size:14.5px}
+  .step-item p{margin:0;color:var(--muted);font-size:13.2px;line-height:1.68}
+  .step-item p+p{margin-top:7px}
+  .step-item .inline-code{font-family:var(--mono);font-size:.92em;background:#eef2f7;border:1px solid #e1e7ef;border-radius:5px;padding:1px 5px;color:#1e293b}
+
+  /* code */
+  .codeblock{position:relative;background:var(--code-bg);border:1px solid var(--code-line);border-radius:12px;overflow:hidden;margin:12px 0 16px}
+  .codeblock .code-head{
+    display:flex;align-items:center;justify-content:space-between;gap:12px;
+    padding:8px 12px;border-bottom:1px solid #243247;background:#111c31;
+    color:#94a3b8;font-size:10.5px;font-weight:600;letter-spacing:.04em;
+  }
+  .codeblock pre{margin:0;padding:14px 44px 14px 16px;overflow-x:auto;color:#e2e8f0;font-family:var(--mono);font-size:12.4px;line-height:1.72;tab-size:2}
+  .codeblock code{font-family:inherit;font-size:inherit}
+  .codeblock .c{color:#94a3b8}
+  .codeblock .copy{
+    position:absolute;top:34px;right:8px;height:24px;padding:0 8px;border-radius:6px;
+    border:1px solid #334155;background:#1e293b;color:#cbd5e1;font-size:10.5px;
+    font-family:var(--sans);cursor:pointer;z-index:1;
+  }
+  .codeblock .copy:hover{background:#334155;color:#fff}
+  .codeblock .copy.copied{background:#14532d;border-color:#166534;color:#bbf7d0}
+
+  /* tables */
+  .table-wrap{border:1px solid var(--line);border-radius:12px;background:var(--surface);overflow-x:auto;margin:14px 0 18px;box-shadow:0 1px 2px rgba(16,24,40,.02)}
+  table{border-collapse:collapse;width:100%;min-width:640px;font-size:12.8px;line-height:1.6}
+  th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{background:#fafbfc;color:var(--muted);font-size:10.8px;font-weight:700;letter-spacing:.03em;white-space:nowrap}
+  tbody tr:last-child td{border-bottom:0}
+  tbody tr:hover td{background:#fcfdfe}
+  td strong{font-weight:650}
+  .badge{display:inline-flex;align-items:center;border-radius:999px;padding:1px 7px;font-size:10.5px;font-weight:650;border:1px solid;white-space:nowrap}
+  .badge.ok{color:var(--ok);background:var(--ok-soft);border-color:var(--ok-line)}
+  .badge.warn{color:var(--warn);background:var(--warn-soft);border-color:var(--warn-line)}
+  .badge.neutral{color:#475569;background:#f8fafc;border-color:#e2e8f0}
+  .nowrap{white-space:nowrap}
+
+  /* checklists */
+  .checklist{list-style:none;margin:16px 0;padding:0;display:grid;gap:8px}
+  .checklist li{display:flex;gap:9px;align-items:flex-start;font-size:13.2px;color:var(--muted-strong);line-height:1.65;min-width:0;overflow-wrap:anywhere}
+  .checklist li::before{
+    content:"";flex:none;width:15px;height:15px;border-radius:4px;border:1.5px solid #b8c2d0;background:#fff;margin-top:4px;
+  }
+  .checklist code{background:#eef2f7;border:1px solid #e1e7ef;border-radius:4px;padding:0 4px;color:#1e293b}
+
+  /* details */
+  details{background:var(--surface-soft);border:1px solid var(--line);border-radius:11px;padding:0 15px;margin:9px 0}
+  details[open]{border-color:var(--line-strong);box-shadow:0 5px 18px -16px rgba(16,24,40,.3)}
+  summary{
+    list-style:none;cursor:pointer;padding:12px 0;display:flex;align-items:center;justify-content:space-between;gap:14px;
+    font-size:13.4px;font-weight:650;color:var(--ink);
+  }
+  summary::-webkit-details-marker{display:none}
+  summary::after{content:"+";flex:none;color:var(--muted);font-size:16px;font-weight:400;line-height:1}
+  details[open] summary::after{content:"−"}
+  details .details-body{padding:0 0 13px;color:var(--muted);font-size:12.8px;line-height:1.7}
+  details .details-body p{margin:0 0 8px;color:var(--muted)}
+  details .details-body p:last-child{margin-bottom:0}
+  details .details-body code{background:#eef2f7;border:1px solid #e1e7ef;border-radius:4px;padding:0 4px;color:#1e293b}
+
+  /* misc */
+  .divider{height:1px;background:var(--line);margin:26px 0}
+  .tag-row{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0}
+  .tag{display:inline-flex;align-items:center;border:1px solid var(--line);background:#fff;border-radius:999px;padding:3px 9px;font-size:11px;color:var(--muted);font-weight:600}
+  .tag.blue{border-color:var(--accent-line);background:var(--accent-soft);color:var(--accent-strong)}
+  .quick-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:16px 0}
+  .quick-card{background:var(--surface-soft);border:1px solid var(--line);border-radius:11px;padding:14px 15px}
+  .quick-card h4{margin:0 0 6px;font-size:13px}
+  .quick-card p{margin:0;color:var(--muted);font-size:12.4px;line-height:1.65}
+  .quick-card code{background:#eef2f7;border:1px solid #e1e7ef;border-radius:4px;padding:0 4px;color:#1e293b}
+  .footer{margin-top:46px;padding-top:20px;border-top:1px solid var(--line);color:var(--muted);font-size:11.5px;line-height:1.7}
+  .footer strong{color:var(--ink)}
+  .footer p{margin:0 0 6px;color:var(--muted)}
+  .back-top{display:inline-flex;align-items:center;gap:5px;margin-top:6px;font-size:11.5px;font-weight:600}
+
+  @media (max-width:1040px){
+    .layout{grid-template-columns:1fr;gap:18px}
+    .toc{display:none}
+    .toc-mobile{display:block;background:var(--surface);border:1px solid var(--line);border-radius:13px;padding:0 15px}
+    .toc-mobile summary{padding:13px 0;font-size:13px}
+    .toc-mobile ol{list-style:none;margin:0;padding:0 0 11px;display:grid;gap:1px}
+    .toc-mobile a{display:block;padding:5px 8px;border-radius:6px;color:var(--muted);font-size:12.5px}
+    .toc-mobile a:hover{background:var(--canvas);color:var(--ink);text-decoration:none}
+    article{padding:34px 30px 40px}
+  }
+  @media (max-width:760px){
+    body{font-size:15px}
+    .wrap{width:min(calc(100% - 24px),var(--max))}
+    .topnav{display:none}
+    .top-meta{font-size:10px}
+    .layout{padding-top:18px}
+    article{padding:26px 19px 32px;border-radius:15px}
+    h1{font-size:clamp(27px,8vw,36px)}
+    .lead{font-size:15px}
+    .block{margin-top:34px;padding-top:34px}
+    .flow{grid-template-columns:1fr;gap:7px}
+    .flow-arrow{transform:rotate(90deg);font-size:15px}
+    .flow-stack{grid-template-columns:1fr}
+    .mini-grid,.quick-grid{grid-template-columns:1fr}
+    .step-item{grid-template-columns:1fr;gap:9px}
+    .step-no{width:27px;height:27px;font-size:11.5px}
+    .codeblock pre{font-size:11.6px}
+    .table-wrap{font-size:12.2px}
+    table{min-width:600px}
+    .goal-box{padding:15px 16px}
+  }
+  @media print{
+    .topbar,.toc,.toc-mobile,.codeblock .copy,.back-top{display:none!important}
+    body{background:#fff;font-size:11pt}
+    .layout{display:block;padding:0}
+    article{border:0;box-shadow:none;padding:0;border-radius:0}
+    .block{break-inside:avoid;page-break-inside:avoid}
+    .codeblock{background:#f8fafc;border-color:#ccc}
+    .codeblock pre{color:#111}
+    .codeblock .code-head{background:#eef2f7;color:#334155;border-color:#d7dee8}
+    .codeblock .c{color:#64748b}
+    a{color:#111}
+  }
+  @media (prefers-reduced-motion:reduce){
+    html{scroll-behavior:auto}
+    .progress span{transition:none}
+  }
+</style>
+</head>
+<body>
+<a class="skip" href="#main">跳到正文</a>
+
+<header class="topbar">
+  <div class="wrap">
+    <a class="brand" href="#top" aria-label="TokenHUB 实战教程">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="16" y="16" width="6" height="6" rx="1"></rect>
+          <rect x="2" y="16" width="6" height="6" rx="1"></rect>
+          <rect x="9" y="2" width="6" height="6" rx="1"></rect>
+          <path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3"></path>
+          <path d="M12 12V8"></path>
+        </svg>
+      </span>
+      <span class="brand-name">TokenHUB<small>实战教程</small></span>
+    </a>
+    <nav class="topnav" aria-label="文章导航">
+      <a href="#providers">供应商</a>
+      <a href="#alias">统一模型</a>
+      <a href="#connect">接入 Claude</a>
+      <a href="#cheatsheet">速查</a>
+    </nav>
+    <span class="top-meta">v0.1.0 · 2026-10-30</span>
+  </div>
+  <div class="progress" aria-hidden="true"><span id="progressBar"></span></div>
+</header>
+
+<main id="main">
+  <span id="top"></span>
+  <details class="toc-mobile wrap">
+    <summary>文章目录</summary>
+    <ol>
+      <li><a href="#overview">1. 先看链路</a></li>
+      <li><a href="#prepare">2. 准备清单</a></li>
+      <li><a href="#install-tokenhub">3. 安装 TokenHUB</a></li>
+      <li><a href="#install-claude">4. 安装 Claude Code</a></li>
+      <li><a href="#providers">5. 配置三个供应商</a></li>
+      <li><a href="#alias">6. 统一模型 ID</a></li>
+      <li><a href="#connect">7. 接入 Claude Code</a></li>
+      <li><a href="#desktop">7.1 桌面版开发者模式</a></li>
+      <li><a href="#cli">7.2 CLI 配置文件</a></li>
+      <li><a href="#verify">8. 验证与排错</a></li>
+      <li><a href="#troubleshooting">9. 常见问题</a></li>
+      <li><a href="#security">10. 安全与边界</a></li>
+      <li><a href="#cheatsheet">11. 一页速查</a></li>
+    </ol>
+  </details>
+  <div class="wrap layout">
+    <aside class="toc" aria-label="文章目录">
+      <p class="toc-title">目录</p>
+      <ol>
+        <li><a href="#overview">1. 先看链路</a></li>
+        <li><a href="#prepare">2. 准备清单</a></li>
+        <li><a href="#install-tokenhub">3. 安装 TokenHUB</a></li>
+        <li><a href="#install-claude">4. 安装 Claude Code</a></li>
+        <li><a href="#providers">5. 配置三个供应商</a></li>
+        <li class="sub"><a href="#provider-opencode">OpenCode Go</a></li>
+        <li class="sub"><a href="#provider-deepseek">DeepSeek</a></li>
+        <li class="sub"><a href="#provider-commandcode">CommandCode Goat</a></li>
+        <li class="sub"><a href="#priority">优先级与扫描</a></li>
+        <li><a href="#alias">6. 统一模型 ID</a></li>
+        <li><a href="#connect">7. 接入 Claude Code</a></li>
+        <li class="sub"><a href="#desktop">桌面版开发者模式</a></li>
+        <li class="sub"><a href="#cli">CLI 配置文件</a></li>
+        <li><a href="#verify">8. 验证与排错</a></li>
+        <li><a href="#troubleshooting">9. 常见问题</a></li>
+        <li><a href="#security">10. 安全与边界</a></li>
+        <li><a href="#cheatsheet">11. 一页速查</a></li>
+      </ol>
+      <p class="toc-note">本文不含截图，所有操作按界面文字描述。模型 ID 与额度规则以应用内「模型」页为准。</p>
+    </aside>
+
+    <article>
+      <header class="hero">
+        <p class="eyebrow">TokenHUB · Practical Guide</p>
+        <h1>把 DeepSeek V4.1&nbsp;Flash<br><span class="accent">接进 Claude Code</span></h1>
+        <p class="lead">
+          这是一份从零跑通的实操教程：先装 TokenHUB，再用 Claude Code 桌面版的开发者模式
+          （或 CLI 的 <span class="mono">settings.json</span>）指向本地网关，
+          配置 OpenCode Go、DeepSeek 与 CommandCode Goat 三家供应商，
+          最后把 DeepSeek V4.1 Flash 统一成 Claude Code 认识的 <span class="mono">claude-sonnet-4-5</span>。
+          全程一个本地地址，不把 Key 交给第三方中转。
+        </p>
+        <div class="meta-row">
+          <span>Windows 10 / 11</span>
+          <span>TokenHUB v0.1.0</span>
+          <span>Claude Code 桌面版 / CLI</span>
+          <span>约 15 分钟</span>
+          <span>无需 Anthropic 订阅</span>
+        </div>
+
+        <div class="goal-box">
+          <h2>读完后你会得到什么</h2>
+          <ul>
+            <li>Claude Code 不登录 Anthropic，也能正常读写项目、跑命令；桌面版用开发者模式，CLI 用配置文件。</li>
+            <li>TokenHUB 里同时挂载 <strong>OpenCode Go</strong>、<strong>DeepSeek</strong>、<strong>CommandCode Goat</strong>，按优先级自动选路。</li>
+            <li>Claude Code 只记一个模型名 <strong><span class="mono">claude-sonnet-4-5</span></strong>，背后实际跑的是 DeepSeek V4.1 Flash。</li>
+            <li>OpenCode Go 额度耗尽或限流时，请求能自动落到下一家；排错时能在历史里看到真实上游模型。</li>
+          </ul>
+        </div>
+      </header>
+
+      <section class="block" id="overview">
+        <p class="section-kicker">01 · Overview</p>
+        <h2>先看链路：Claude Code 不需要知道 DeepSeek 叫什么</h2>
+        <p class="section-lead">
+          Claude Code 说的是 Anthropic Messages 协议；OpenCode Go、DeepSeek、CommandCode Goat 的上游形状并不完全一样。
+          TokenHUB 的工作，就是站在中间把协议、模型名和失败切换都处理掉。
+        </p>
+
+        <div class="flow" aria-label="请求链路示意">
+          <div class="flow-node">
+            <strong>Claude Code</strong>
+            <span>Anthropic /v1/messages</span>
+          </div>
+          <div class="flow-arrow" aria-hidden="true">→</div>
+          <div class="flow-node hub">
+            <strong>TokenHUB</strong>
+            <span>127.0.0.1:8787</span>
+            <span>统一模型 + 协议转译 + 优先级</span>
+          </div>
+          <div class="flow-arrow" aria-hidden="true">→</div>
+          <div class="flow-stack">
+            <div class="flow-node">
+              <strong>OpenCode Go</strong>
+              <span>deepseek-v4.1-flash</span>
+            </div>
+            <div class="flow-node">
+              <strong>DeepSeek</strong>
+              <span>deepseek-flash</span>
+            </div>
+            <div class="flow-node">
+              <strong>CommandCode Goat</strong>
+              <span>按其模型列表</span>
+            </div>
+          </div>
+        </div>
+        <p class="flow-note">示意图只表达关系，不代表固定顺序；实际顺序由「供应商」页从上到下决定。</p>
+
+        <div class="mini-grid">
+          <div class="mini">
+            <h3>没有 TokenHUB 时</h3>
+            <p>Claude Code 只能指向一个上游；换供应商要改 Base URL、换模型名、重启客户端，额度用完只能手动切。</p>
+          </div>
+          <div class="mini">
+            <h3>有了 TokenHUB 后</h3>
+            <p>所有客户端都指向 <span class="mono">127.0.0.1:8787</span>；供应商增删、排序、换 Key 都在本地界面完成。</p>
+          </div>
+          <div class="mini">
+            <h3>统一模型解决什么</h3>
+            <p>同一个模型在 OpenCode Go 叫 <span class="mono">deepseek-v4.1-flash</span>，在 DeepSeek 官方叫 <span class="mono">deepseek-flash</span>；统一后 Claude Code 只认一个名字。</p>
+          </div>
+          <div class="mini">
+            <h3>失败时发生什么</h3>
+            <p>额度、限流、5xx 会切到下一家；流式请求一旦开始返回内容就不再切换，避免两段回答互相覆盖。</p>
+          </div>
+        </div>
+
+        <div class="callout">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 8h.01M11 12h1v4h1"></path></svg>
+          <p><strong>一句话理解：</strong>TokenHUB 是本地网关，不是云端中转。它只监听 <span class="mono">127.0.0.1</span>，Key 存在本机，请求只会转发给你配置的供应商。</p>
+        </div>
+      </section>
+
+      <section class="block" id="prepare">
+        <p class="section-kicker">02 · Checklist</p>
+        <h2>准备清单</h2>
+        <p class="section-lead">缺什么先补什么；只有 TokenHUB 和 Claude Code 是必须安装的软件，三家供应商的 Key 可以边配边补。</p>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th scope="col">项目</th><th scope="col">用途</th><th scope="col">说明</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>TokenHUB 安装包</strong></td>
+                <td>本地网关</td>
+                <td>Windows 安装包，当前版本 <span class="mono">0.1.0</span>；从项目发布页获取。</td>
+              </tr>
+              <tr>
+                <td><strong>Claude Code 桌面版 / CLI</strong></td>
+                <td>客户端</td>
+                <td>桌面版用 Developer Mode 配 Gateway；CLI 用 <span class="mono">settings.json</span>。二选一即可，也可以都装。注意桌面应用与网页版 <span class="mono">claude.ai</span> 不是同一个入口。</td>
+              </tr>
+              <tr>
+                <td><strong>OpenCode Go Key</strong></td>
+                <td>主力供应商</td>
+                <td>OpenCode Go 订阅的 API Key；Go 与 Zen 是两套权益，注意别拿错。</td>
+              </tr>
+              <tr>
+                <td><strong>DeepSeek Key</strong></td>
+                <td>同模型直连兜底</td>
+                <td>在 <span class="mono">platform.deepseek.com</span> 创建；账户里要有余额。</td>
+              </tr>
+              <tr>
+                <td><strong>CommandCode Goat Key</strong></td>
+                <td>Claude 模型 / 额外兜底</td>
+                <td>CommandCode 控制台里的 Provider API Key；是否带 DeepSeek 模型以其模型页为准。</td>
+              </tr>
+              <tr>
+                <td><strong>Git for Windows</strong></td>
+                <td>可选</td>
+                <td>只影响 CLI；桌面版不需要。CLI 在 Windows 上推荐安装，没有时会退回 PowerShell。</td>
+              </tr>
+              <tr>
+                <td><strong>Node.js 22+</strong></td>
+                <td>仅 CLI 的 npm 安装方式需要</td>
+                <td>桌面版不需要 Node.js；CLI 用官方安装脚本时也不需要。</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <ul class="checklist">
+          <li>Windows 10 或 Windows 11；桌面版能正常启动，走 CLI 时能打开 PowerShell / 终端。</li>
+          <li>Claude Code 桌面版已安装，且版本支持 Developer Mode 与第三方推理配置。</li>
+          <li>TokenHUB 安装包已下载，且知道它放在哪个目录。</li>
+          <li>OpenCode Go、DeepSeek、CommandCode Goat 三家的 Key 至少准备好 OpenCode Go 与 DeepSeek。</li>
+          <li>DeepSeek 账户有可用余额；OpenCode Go 订阅在有效期内。</li>
+          <li>本地 8787 端口没有被其他程序长期占用（被占用也能换端口）。</li>
+        </ul>
+      </section>
+
+      <section class="block" id="install-tokenhub">
+        <p class="section-kicker">03 · TokenHUB</p>
+        <h2>安装并启动 TokenHUB</h2>
+        <p class="section-lead">先把网关跑起来，再去装客户端。这样 Claude Code 配置完就能直接验证，不用来回切换窗口。</p>
+
+        <div class="step-list">
+          <div class="step-item">
+            <span class="step-no">1</span>
+            <div>
+              <h4>下载安装包</h4>
+              <p>打开项目发布页，下载 <span class="inline-code">TokenHUB Setup 0.1.0.exe</span>。当前只提供 Windows 安装包，没有 macOS / Linux 版本。</p>
+            </div>
+          </div>
+          <div class="step-item">
+            <span class="step-no">2</span>
+            <div>
+              <h4>安装并启动</h4>
+              <p>双击安装包，按向导选择目录并完成安装。启动后窗口出现即表示主进程已运行；关闭窗口默认最小化到托盘，服务继续监听。</p>
+              <p>如果 Windows 弹出「已保护你的电脑」，确认文件来自项目发布页后，点「更多信息」→「仍要运行」。</p>
+            </div>
+          </div>
+          <div class="step-item">
+            <span class="step-no">3</span>
+            <div>
+              <h4>确认服务与端口</h4>
+              <p>打开「概览」，顶部应显示服务运行中。默认监听 <span class="inline-code">127.0.0.1:8787</span>；如果 8787 被占用，应用仍会打开，只是服务未启动，到「设置」换一个端口保存即可。</p>
+            </div>
+          </div>
+          <div class="step-item">
+            <span class="step-no">4</span>
+            <div>
+              <h4>看一眼前面的地址</h4>
+              <p>进入「设置」→「连接信息」，确认 Anthropic Base URL 是 <span class="inline-code">http://127.0.0.1:8787</span>，末尾没有 <span class="inline-code">/v1</span>。OpenAI Base URL 则是 <span class="inline-code">http://127.0.0.1:8787/v1</span>。</p>
+              <p>本文只用到 Anthropic 入口，因为 Claude Code 走的是 Messages 协议。</p>
+            </div>
+          </div>
+          <div class="step-item">
+            <span class="step-no">5</span>
+            <div>
+              <h4>本地访问 Key：可开可不开</h4>
+              <p>默认关闭，本机程序可以直接访问。开启后，所有 <span class="inline-code">/v1</span> 请求都要带 Bearer 或 <span class="inline-code">x-api-key</span>；桌面版 Gateway 的 API key、CLI 的 <span class="mono">ANTHROPIC_AUTH_TOKEN</span> 都要填这个 Key。本文先按关闭处理，配置里用占位值。</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="callout">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 8h.01M11 12h1v4h1"></path></svg>
+          <p><strong>Key 放在哪里：</strong>供应商 Key 与本地访问 Key 都保存在 <span class="mono">%APPDATA%\TokenHUB\secrets.bin</span>，由 Windows DPAPI 加密。界面不回显，日志和历史也不落 Key。不要把 <span class="mono">secrets.bin</span> 复制到另一台机器或另一个数据目录，通常无法解密。</p>
+        </div>
+      </section>
+
+      <section class="block" id="install-claude">
+        <p class="section-kicker">04 · Claude Code</p>
+        <h2>安装 Claude Code 桌面版，打开开发者模式</h2>
+        <p class="section-lead">Claude Code 有两个入口：桌面版（GUI，用 Developer Mode 配 Gateway）和 CLI（用 settings.json）。本文以桌面版为主；终端用户可以直接跳到 7.2。</p>
+
+        <div class="callout">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 8h.01M11 12h1v4h1"></path></svg>
+          <p><strong>先分清入口：</strong>本文说的是 Claude 桌面版里的 Claude Code（桌面应用，带 Developer Mode 与第三方推理配置），不是网页版 <span class="mono">claude.ai</span>。网页版没有本地 Gateway 配置，也无法读取你电脑上的 TokenHUB。</p>
+        </div>
+
+        <h3>4.1 下载并安装 Claude Code 桌面版</h3>
+        <div class="step-list">
+          <div class="step-item">
+            <span class="step-no">1</span>
+            <div>
+              <h4>从官方页面下载</h4>
+              <p>打开 <a href="https://claude.com/product/claude-code" target="_blank" rel="noreferrer">claude.com/product/claude-code</a>，选择 Windows 安装包。官方桌面版文档在 <a href="https://code.claude.com/docs/zh-CN/desktop-quickstart" target="_blank" rel="noreferrer">code.claude.com/docs/zh-CN/desktop-quickstart</a>。</p>
+              <p>国内网络访问官网不稳定时，优先找官方提供的其他下载入口或可信的离线安装包；不要运行来路不明的第三方安装包，来源无法核对时宁可改用 CLI 路线。</p>
+            </div>
+          </div>
+          <div class="step-item">
+            <span class="step-no">2</span>
+            <div>
+              <h4>安装并启动</h4>
+              <p>双击安装，完成后启动 Claude Code 桌面版。桌面版不需要 Node.js、Git for Windows 或 npm；这些只在 CLI 路线用到。</p>
+              <p>如果启动后停在登录界面，先不要登录——下一步用开发者模式接管认证。</p>
+            </div>
+          </div>
+          <div class="step-item">
+            <span class="step-no">3</span>
+            <div>
+              <h4>开启 Developer Mode</h4>
+              <p>在顶部菜单依次点 <strong>Help → Troubleshooting → Enable Developer Mode…</strong>，在确认框里点 <strong>Enable</strong>。应用会自动重启。</p>
+              <p>重启后顶部菜单多出 <strong>Developer</strong> 项，说明开发者模式已开启。不同版本菜单文字可能略有差异，认准 Developer Mode / 开发者模式。</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="callout warn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 9v4"></path><path d="M12 17h.01"></path><path d="M10.3 3.9L2.4 18a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"></path></svg>
+          <p><strong>找不到 Developer 菜单：</strong>先把 Claude Code 桌面版升级到最新版本，再重新执行 Help → Troubleshooting → Enable Developer Mode，并完全退出、重新打开应用。旧版本没有第三方推理配置，无法接入 TokenHUB。</p>
+        </div>
+
+        <h3>4.2 可选：安装 Claude Code CLI</h3>
+        <p>如果你习惯终端、IDE 集成或脚本自动化，或者桌面版不接受 HTTP 本地网关，可以改用 CLI。CLI 与桌面版是两条独立路径，配置互不影响；只用桌面版可以跳过这一节。</p>
+
+        <h4>路线 A：官方安装脚本</h4>
+        <p>在 PowerShell 里执行（普通用户即可，不需要管理员权限）：</p>
+        <div class="codeblock">
+          <div class="code-head"><span>PowerShell</span></div>
+          <button class="copy" type="button">复制</button>
+          <pre><code>irm https://claude.ai/install.ps1 | iex</code></pre>
+        </div>
+        <p>装完重新打开终端，验证：</p>
+        <div class="codeblock">
+          <div class="code-head"><span>PowerShell</span></div>
+          <button class="copy" type="button">复制</button>
+          <pre><code>claude --version
+claude doctor</code></pre>
+        </div>
+
+        <h4>路线 B：npm 镜像（国内网络更稳）</h4>
+        <p>先装 Node.js 22 或更高版本。已经装过 Node 的，先确认版本：</p>
+        <div class="codeblock">
+          <div class="code-head"><span>PowerShell</span></div>
+          <button class="copy" type="button">复制</button>
+          <pre><code>node --version
+npm --version</code></pre>
+        </div>
+        <p>没有 Node.js 的，可以用 winget 装 LTS，或者去 npmmirror 的 Node 镜像下载安装包。然后把 npm 源切到国内镜像：</p>
+        <div class="codeblock">
+          <div class="code-head"><span>PowerShell</span></div>
+          <button class="copy" type="button">复制</button>
+          <pre><code>npm config set registry https://registry.npmmirror.com
+npm install -g @anthropic-ai/claude-code</code></pre>
+        </div>
+        <p>npm 安装的也是 Claude Code 的原生程序，只是通过 npm 分发。如果遇到 <span class="mono">claude native binary not installed</span>，先清缓存再重装：</p>
+        <div class="codeblock">
+          <div class="code-head"><span>PowerShell</span></div>
+          <button class="copy" type="button">复制</button>
+          <pre><code>npm cache clean --force
+npm install -g @anthropic-ai/claude-code</code></pre>
+        </div>
+
+        <div class="callout">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 8h.01M11 12h1v4h1"></path></svg>
+          <p><strong>验证 CLI 安装：</strong>运行 <span class="mono">claude --version</span> 能输出版本号；<span class="mono">claude doctor</span> 能正常检查环境。若提示「claude 不是内部或外部命令」，多半是 npm 全局目录不在 PATH，重开终端或检查 npm 的全局前缀。</p>
+        </div>
+
+        <p>首次启动 CLI 时如果提示登录 Anthropic，先按 <span class="mono">Ctrl+C</span> 退出；7.2 会用 <span class="mono">settings.json</span> 接管认证。</p>
+      </section>
+
+      <section class="block" id="providers">
+        <p class="section-kicker">05 · Providers</p>
+        <h2>在 TokenHUB 里配置三个供应商</h2>
+        <p class="section-lead">
+          「供应商」页从上到下就是路由顺序。三家都加上，先不纠结谁第一；等模型和 Key 都验证通过，再拖动排序。
+          每个供应商都走同一套流程：添加 → 选预设 → 填 Key → 测试连接 → 保存。
+        </p>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th scope="col">建议顺序</th><th scope="col">供应商</th><th scope="col">预设 Base URL</th><th scope="col">额度适配器</th><th scope="col">本文角色</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><span class="badge ok">1</span></td>
+                <td><strong>OpenCode Go</strong></td>
+                <td class="mono">https://opencode.ai/zen/go/v1</td>
+                <td class="nowrap">OpenCode Go 额度接口</td>
+                <td>主力，优先消耗订阅额度</td>
+              </tr>
+              <tr>
+                <td><span class="badge neutral">2</span></td>
+                <td><strong>DeepSeek</strong></td>
+                <td class="mono">https://api.deepseek.com/v1</td>
+                <td class="nowrap">DeepSeek 余额接口</td>
+                <td>同模型直连兜底</td>
+              </tr>
+              <tr>
+                <td><span class="badge neutral">3</span></td>
+                <td><strong>CommandCode Goat</strong></td>
+                <td class="mono">https://api.commandcode.ai/provider/v1</td>
+                <td class="nowrap">CommandCode 套餐接口</td>
+                <td>Claude 模型 / 额外兜底</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p class="small">顺序只是本文示例。你可以按自己的套餐、价格和延迟调整；唯一要记住的是：<strong>上面的先用，失败或冷却才轮到下面。</strong>窄屏下表格可左右滑动查看完整列。</p>
+
+        <div class="callout">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 8h.01M11 12h1v4h1"></path></svg>
+          <p><strong>编辑供应商时还有一个可选的「Anthropic Base URL」：</strong>它只用于 Claude 格式的 <span class="mono">/messages</span> 请求，需要填含版本路径的地址。OpenCode Go 与 CommandCode Goat 留空即可（默认与 Base URL 相同）；DeepSeek 官方域名留空时会自动使用 <span class="mono">https://api.deepseek.com/anthropic/v1</span>。只有自建或中转服务才需要手动覆盖。</p>
+        </div>
+
+        <h3 id="provider-opencode">5.1 OpenCode Go：主力供应商</h3>
+        <p>OpenCode Go 是 OpenCode 的付费订阅，用它自己的 Go API Key。它和 Zen 共用一套凭据基础设施，但 <strong>Zen 的 Key 不会自动带 Go 权益</strong>；如果测试连接只看到 Zen 模型或额度不对，先确认自己开通的是 Go。</p>
+
+        <div class="step-list">
+          <div class="step-item">
+            <span class="step-no">1</span>
+            <div>
+              <h4>添加供应商</h4>
+              <p>进入「供应商」→「添加供应商」，预设选择 <span class="inline-code">OpenCode Go</span>。名称、Base URL、额度适配器会自动填好，不需要手改。</p>
+            </div>
+          </div>
+          <div class="step-item">
+            <span class="step-no">2</span>
+            <div>
+              <h4>填 API Key</h4>
+              <p>把 OpenCode Go 控制台创建的 Key 粘进去。Key 只保存到本机，界面上不会回显；编辑时留空表示沿用旧 Key。</p>
+            </div>
+          </div>
+          <div class="step-item">
+            <span class="step-no">3</span>
+            <div>
+              <h4>测试连接</h4>
+              <p>点「测试连接」。成功时会显示发现的模型数量与额度摘要；重点确认模型列表里有 <span class="mono">deepseek-v4.1-flash</span>。额度接口偶尔失败不影响模型发现，可以先保存，稍后看概览卡。</p>
+            </div>
+          </div>
+          <div class="step-item">
+            <span class="step-no">4</span>
+            <div>
+              <h4>保存并置顶</h4>
+              <p>保存后回到供应商列表，拖动行首手柄，把 OpenCode Go 放到第一位。它是本文的主力通道。</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="callout warn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 9v4"></path><path d="M12 17h.01"></path><path d="M10.3 3.9L2.4 18a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"></path></svg>
+          <p><strong>不要填错模型：</strong>OpenCode Go 预设对应的是 Go 订阅的 <span class="mono">deepseek-v4.1-flash</span>（付费版，1M 上下文）。<span class="mono">deepseek-v4.1-flash-free</span> 是 Zen 渠道的免费版（约 200K 上下文），不要把它填进这个 Go 预设；端点和权益都不是一回事。</p>
+        </div>
+
+        <p>OpenCode Go 的额度卡会显示滚动 / 周 / 月三个窗口；具体上限由套餐和模型决定。TokenHUB 每 60 秒探测一次（可在设置里调整），额度耗尽会自动进入冷却并切到下一家。</p>
+
+        <h3 id="provider-deepseek">5.2 DeepSeek：同模型直连兜底</h3>
+        <p>DeepSeek 官方同时提供 OpenAI 兼容的 <span class="mono">/v1</span> 和 Anthropic 兼容的 <span class="mono">/anthropic/v1</span>。它的作用是：当 OpenCode Go 额度用完、限流或临时不可用时，Claude Code 仍然能用到同一个 DeepSeek V4.1 Flash，只是换成按量计费。</p>
+
+        <div class="step-list">
+          <div class="step-item">
+            <span class="step-no">1</span>
+            <div>
+              <h4>添加预设</h4>
+              <p>「添加供应商」→ 预设选 <span class="inline-code">DeepSeek</span>。Base URL 自动填 <span class="mono">https://api.deepseek.com/v1</span>；下面的「Anthropic Base URL」留空即可，官方域名会自动使用 <span class="mono">https://api.deepseek.com/anthropic/v1</span>。额度适配器为「DeepSeek 余额接口」。</p>
+            </div>
+          </div>
+          <div class="step-item">
+            <span class="step-no">2</span>
+            <div>
+              <h4>填 Key 与余额阈值</h4>
+              <p>把 <span class="mono">platform.deepseek.com</span> 创建的 API Key 粘进去。低余额阈值默认 0.5 美元，余额低于这个值会被视为耗尽；按自己的用量改。</p>
+            </div>
+          </div>
+          <div class="step-item">
+            <span class="step-no">3</span>
+            <div>
+              <h4>确认模型 ID</h4>
+              <p>当前 DeepSeek V4.1 Flash 的官方 API 模型 ID 是 <span class="mono">deepseek-flash</span>。旧的 <span class="mono">deepseek-chat</span> 与 <span class="mono">deepseek-reasoner</span> 已在 2026 年 7 月 24 日退役，不要照着旧教程填。</p>
+            </div>
+          </div>
+          <div class="step-item">
+            <span class="step-no">4</span>
+            <div>
+              <h4>保存并观察余额</h4>
+              <p>保存后概览会出现余额卡。DeepSeek 余额最多每 5 分钟探测一次，避免频繁请求；余额刷新慢是正常现象。</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="callout">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 8h.01M11 12h1v4h1"></path></svg>
+          <p><strong>DeepSeek 官方有独立的 Anthropic 入口：</strong>Claude Code 发来 Messages 请求时，TokenHUB 会直连 <span class="mono">https://api.deepseek.com/anthropic/v1/messages</span>，不需要先转成 Chat。只有供应商被扫描或标记为不支持 Messages 时，才会退回 Chat 形状并做双向转译。</p>
+        </div>
+
+        <h3 id="provider-commandcode">5.3 CommandCode Goat：Claude 模型与额外兜底</h3>
+        <p>CommandCode Goat 的定位和上面两家不同：它既有 Claude 系模型，也可能带 DeepSeek 系模型。把它加进来，主要是为了在 OpenCode Go 与 DeepSeek 都不可用时还有一条路，同时让 Claude Code 的 Claude 模型槽位有真正的 Claude 可用。</p>
+
+        <div class="step-list">
+          <div class="step-item">
+            <span class="step-no">1</span>
+            <div>
+              <h4>添加预设</h4>
+              <p>「添加供应商」→ 预设选 <span class="inline-code">CommandCode Goat</span>。Base URL 自动填 <span class="mono">https://api.commandcode.ai/provider/v1</span>，额度适配器为「CommandCode 套餐接口」。</p>
+            </div>
+          </div>
+          <div class="step-item">
+            <span class="step-no">2</span>
+            <div>
+              <h4>填 Provider API Key</h4>
+              <p>用 CommandCode 控制台创建的 Provider API Key，不是普通登录密码。填完先点「测试连接」，能看到模型列表再保存。</p>
+            </div>
+          </div>
+          <div class="step-item">
+            <span class="step-no">3</span>
+            <div>
+              <h4>看模型列表，不要硬填</h4>
+              <p>CommandCode 的模型 ID 可能是 <span class="mono">claude-sonnet-4-5</span> 这种 Claude 名，也可能是 <span class="mono">deepseek/...</span> 这种带命名空间的写法。是否有 DeepSeek V4.1 Flash、ID 具体叫什么，<strong>以「模型」页显示为准</strong>；没有就不要为了凑统一模型硬填。</p>
+            </div>
+          </div>
+          <div class="step-item">
+            <span class="step-no">4</span>
+            <div>
+              <h4>保存，放到第三位</h4>
+              <p>本文把它放在 OpenCode Go 与 DeepSeek 之后。它不是主力，但在 Claude 模型槽位或前两家冷却时很有用。</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="callout warn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 9v4"></path><path d="M12 17h.01"></path><path d="M10.3 3.9L2.4 18a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"></path></svg>
+          <p><strong>额度探针的 401 / 403 不是一回事：</strong>CommandCode 用的是控制台同款内部接口。401 才表示 Key 无效；403 或响应无法识别按「探针失败」处理，不要因为额度卡报错就立刻换 Key。未识别的套餐按月上限 70 美元估算，余额高于上限时以余额定标。</p>
+        </div>
+
+        <h3 id="priority">5.4 调优先级，做一次兼容性扫描</h3>
+        <p>供应商列表的顺序就是路由顺序。本文建议：<strong>OpenCode Go → DeepSeek → CommandCode Goat</strong>。拖动行首手柄即可保存新顺序；开关可以临时停用某一家，不用删除。</p>
+
+        <div class="step-list">
+          <div class="step-item">
+            <span class="step-no">1</span>
+            <div>
+              <h4>刷新模型目录</h4>
+              <p>保存供应商后，到「模型」页点「刷新全部模型」。模型页会合并所有已启用供应商的目录；同名模型只出现一次。</p>
+            </div>
+          </div>
+          <div class="step-item">
+            <span class="step-no">2</span>
+            <div>
+              <h4>扫描调用方式</h4>
+              <p>在「调用方式兼容性」里，对每个供应商点「扫描」。TokenHUB 会对每个模型向 Anthropic 入口的 <span class="mono">/messages</span> 与 Base URL 的 <span class="mono">/chat/completions</span> 各发一个 <span class="mono">max_tokens=16</span> 的请求，把结果写进 <span class="mono">protocolSupport</span>。DeepSeek 官方会自动使用 <span class="mono">/anthropic/v1/messages</span>。</p>
+            </div>
+          </div>
+          <div class="step-item">
+            <span class="step-no">3</span>
+            <div>
+              <h4>看 A / O 徽标</h4>
+              <p>A 表示 Anthropic Messages 可用，O 表示 OpenAI Chat 可用。绿色对勾表示扫描确认可用，红色表示明确不支持。扫描不写历史、不计供应商冷却；只有同一模型两个入口都 401 才提前停止。</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th scope="col">供应商</th><th scope="col">协议特点</th><th scope="col">对本文的影响</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>OpenCode Go</strong></td>
+                <td>两个入口都可用，优先保持客户端原本的形状</td>
+                <td>Claude Code 的 Messages 请求可以直接走上游 <span class="mono">/messages</span>，少一次转译。</td>
+              </tr>
+              <tr>
+                <td><strong>DeepSeek</strong></td>
+                <td>官方 Anthropic 入口是 <span class="mono">/anthropic/v1</span>，与 OpenAI 的 <span class="mono">/v1</span> 不同；TokenHUB 对官方域名自动推导，也可用 Anthropic Base URL 覆盖</td>
+                <td>Claude Code 的 Messages 请求可以直连；自建 / 中转服务要确认 Anthropic 入口，否则可能 404 / 405。</td>
+              </tr>
+              <tr>
+                <td><strong>CommandCode Goat</strong></td>
+                <td><span class="mono">claude*</span> 只走 <span class="mono">/messages</span>，其余只走 <span class="mono">/chat/completions</span></td>
+                <td>预设会按模型名自动判断；扫描可以确认每个模型的实际能力。</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="callout ok">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"></path></svg>
+          <p><strong>到这里先停一下：</strong>确认三家供应商都已启用、模型页能看到 <span class="mono">deepseek-v4.1-flash</span> 与 <span class="mono">deepseek-flash</span>，再去做统一模型。否则后面 Claude Code 报 404，很难判断是别名问题还是供应商没拉到模型。</p>
+        </div>
+      </section>
+
+      <section class="block" id="alias">
+        <p class="section-kicker">06 · Unified model</p>
+        <h2>把 DeepSeek V4.1 Flash 统一成 <span class="mono">claude-sonnet-4-5</span></h2>
+        <p class="section-lead">
+          Claude Code 默认会按 Claude 的模型名发请求。我们不需要改 Claude Code 的源码，只要在 TokenHUB 里创建一个统一模型：
+          本地 ID 用 Claude 认识的名字，目标写上各家真实的上游模型 ID。
+        </p>
+
+        <p>统一模型解决的是「同一个模型、不同上游名字」的问题。OpenCode Go 叫 <span class="mono">deepseek-v4.1-flash</span>，DeepSeek 官方叫 <span class="mono">deepseek-flash</span>，CommandCode 可能又是另一种写法。统一之后，Claude Code 只发 <span class="mono">claude-sonnet-4-5</span>，TokenHUB 按供应商优先级挑一个目标转发。</p>
+
+        <div class="step-list">
+          <div class="step-item">
+            <span class="step-no">1</span>
+            <div>
+              <h4>打开统一模型</h4>
+              <p>进入「模型」页，找到「统一模型」卡片，点「添加统一模型」。</p>
+            </div>
+          </div>
+          <div class="step-item">
+            <span class="step-no">2</span>
+            <div>
+              <h4>填统一模型 ID</h4>
+              <p>在「统一模型 ID」里填 <span class="inline-code">claude-sonnet-4-5</span>。这是 Claude Code 能识别的 Sonnet 模型名；后面再用 <span class="mono">ANTHROPIC_MODEL</span> 把它锁死，就不会发带日期后缀的版本名。</p>
+            </div>
+          </div>
+          <div class="step-item">
+            <span class="step-no">3</span>
+            <div>
+              <h4>逐个添加上游目标</h4>
+              <p>每个供应商一行：左边选供应商，右边填该供应商模型列表里的真实 ID。不确定就从输入框的下拉候选里选，不要凭记忆手打。</p>
+            </div>
+          </div>
+          <div class="step-item">
+            <span class="step-no">4</span>
+            <div>
+              <h4>保存并检查模型目录</h4>
+              <p>保存后，被映射的原始 ID 会从 <span class="mono">/v1/models</span> 隐藏，模型目录只显示 <span class="mono">claude-sonnet-4-5</span>。原始 ID 仍然可以用 <span class="mono">providerId/原始ID</span> 强制访问。</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th scope="col">供应商目标</th><th scope="col">上游模型 ID</th><th scope="col">说明</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>OpenCode Go</strong></td>
+                <td class="mono">deepseek-v4.1-flash</td>
+                <td>主力目标。Go 套餐内的付费版，1M 上下文；以模型页实际显示为准。</td>
+              </tr>
+              <tr>
+                <td><strong>DeepSeek</strong></td>
+                <td class="mono">deepseek-flash</td>
+                <td>同模型直连兜底。旧 <span class="mono">deepseek-chat</span> 已退役，不要填旧 ID。</td>
+              </tr>
+              <tr>
+                <td><strong>CommandCode Goat</strong></td>
+                <td class="mono">deepseek/…</td>
+                <td>仅当模型页里确实有 DeepSeek V4.1 Flash 时添加；没有就留空，不影响别名保存。</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="callout warn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 9v4"></path><path d="M12 17h.01"></path><path d="M10.3 3.9L2.4 18a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"></path></svg>
+          <p><strong>同名自动纳入：</strong>如果某个供应商原生就有 <span class="mono">claude-sonnet-4-5</span>（例如 CommandCode Goat），它会被自动纳入这个统一模型的候选。显式映射优先，其余同名供应商自动加入。这意味着前两家都不可用时，可能由真正的 Claude 兜底——这不是 bug。如果你要求「任何时候都只能用 DeepSeek」，请改用下面的中性 ID，或停用 CommandCode。</p>
+        </div>
+
+        <h3>备选：用中性 ID <span class="mono">deepseek4.1flash</span></h3>
+        <p>如果你不希望和 Claude 原生模型同名，也可以把统一模型 ID 取成 <span class="mono">deepseek4.1flash</span>。这样不会自动吸收任何同名的 Claude 模型，路由范围完全由你列的 targets 决定。代价是 Claude Code 那边必须显式设置 <span class="mono">ANTHROPIC_MODEL=deepseek4.1flash</span>，并且把 Haiku / Sonnet / Opus 等模型槽位都指向它；否则 Claude Code 仍会发 <span class="mono">claude-...</span> 的名字。</p>
+
+        <div class="quick-grid">
+          <div class="quick-card">
+            <h4>推荐：<span class="mono">claude-sonnet-4-5</span></h4>
+            <p>Claude Code 内置槽位直接命中；配置最少。注意同名的真实 Claude 供应商可能自动加入候选。</p>
+          </div>
+          <div class="quick-card">
+            <h4>可控：<span class="mono">deepseek4.1flash</span></h4>
+            <p>不会和 Claude 模型撞名；但所有模型槽位都要手动指向它，漏一个就可能 404。</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="block" id="connect">
+        <p class="section-kicker">07 · Connect Claude Code</p>
+        <h2>让 Claude Code 指向 TokenHUB</h2>
+        <p class="section-lead">
+          桌面版和 CLI 是两条独立路径，二选一即可：桌面版用 Developer Mode 里的第三方推理配置，
+          CLI 用 <span class="mono">settings.json</span>。两边的模型名都填统一模型 <span class="mono">claude-sonnet-4-5</span>。
+        </p>
+
+        <h3 id="desktop">7.1 Claude Code 桌面版：Developer Mode + Gateway（推荐）</h3>
+        <p>这是你前面打开的开发者模式的真正用途：把桌面版的推理请求接到 TokenHUB。配置一次，桌面版的 Chat、Cowork、Code 都会走同一个网关。</p>
+
+        <div class="step-list">
+          <div class="step-item">
+            <span class="step-no">1</span>
+            <div>
+              <h4>打开第三方推理配置</h4>
+              <p>在顶部菜单点 <strong>Developer → Configure Third-Party Inference…</strong>。如果这个菜单项不存在，回到第 4.1 节确认 Developer Mode 已开启并重启过应用。</p>
+            </div>
+          </div>
+          <div class="step-item">
+            <span class="step-no">2</span>
+            <div>
+              <h4>连接方式选 Gateway</h4>
+              <p>在 Connection 区块选择 <strong>Gateway</strong>（Anthropic-compatible）。如果界面有 Credential kind / 凭据类型，选择 <strong>Static API key</strong>；没有这一项就跳过。</p>
+            </div>
+          </div>
+          <div class="step-item">
+            <span class="step-no">3</span>
+            <div>
+              <h4>填写 TokenHUB 的地址与 Key</h4>
+              <div class="table-wrap" style="margin:10px 0 4px">
+                <table>
+                  <thead>
+                    <tr><th scope="col">字段</th><th scope="col">填写内容</th><th scope="col">说明</th></tr>
+                  </thead>
+                  <tbody>
+                    <tr><td><strong>Gateway base URL</strong></td><td class="mono">http://127.0.0.1:8787</td><td>TokenHUB 的 Anthropic 根地址，不要加 <span class="mono">/v1</span>。</td></tr>
+                    <tr><td><strong>Gateway API key</strong></td><td class="mono">sk-local-placeholder</td><td>TokenHUB 关闭本地访问 Key 时填任意非空值；启用了就填那个 Key。</td></tr>
+                    <tr><td><strong>Gateway auth scheme</strong></td><td class="mono">Bearer</td><td>TokenHUB 接受 Bearer 与 x-api-key；按界面默认即可。</td></tr>
+                    <tr><td><strong>Gateway extra headers</strong></td><td>留空</td><td>TokenHUB 不需要额外请求头；除非你前面加了自定义反向代理。</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <p class="small">窄屏下表格可左右滑动查看完整字段。</p>
+            </div>
+          </div>
+          <div class="step-item">
+            <span class="step-no">4</span>
+            <div>
+              <h4>添加统一模型</h4>
+              <p>在 Model list / 模型列表里点刷新，选择或手动添加 <span class="inline-code">claude-sonnet-4-5</span>。模型列表来自 TokenHUB 的 <span class="mono">/v1/models</span>；如果桌面版没有自动拉到，就手动填这一个统一 ID，不要填上游的 <span class="mono">deepseek-v4.1-flash</span>。</p>
+            </div>
+          </div>
+          <div class="step-item">
+            <span class="step-no">5</span>
+            <div>
+              <h4>应用到本机并重启</h4>
+              <p>点 <strong>Apply locally</strong>（不要选云端同步），再点 <strong>Relaunch now</strong>。桌面版重启后，新建一个会话，模型选择 <span class="mono">claude-sonnet-4-5</span>，发一句「只回复 OK」验证。</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="callout warn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 9v4"></path><path d="M12 17h.01"></path><path d="M10.3 3.9L2.4 18a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"></path></svg>
+          <p><strong>两个版本差异：</strong>有的桌面版会在开发者设置里提供 <span class="mono">Allow External URLs</span> / 允许外部地址的开关，接本地网关时一并打开；有的版本强制 Gateway URL 使用 HTTPS。如果 HTTP 回环地址被拒绝，改用 7.2 的 CLI，或在 TokenHUB 前面加一层本地 HTTPS 反向代理，<strong>不要把 TokenHUB 直接暴露到公网</strong>。</p>
+        </div>
+
+        <div class="callout">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 8h.01M11 12h1v4h1"></path></svg>
+          <p><strong>为什么这里不填上游模型：</strong>桌面版只认你给它的模型 ID。统一模型 <span class="mono">claude-sonnet-4-5</span> 会在 TokenHUB 内部映射到 OpenCode Go 的 <span class="mono">deepseek-v4.1-flash</span> 和 DeepSeek 的 <span class="mono">deepseek-flash</span>。桌面版填上游 ID 反而会绕过别名，失去自动切换。</p>
+        </div>
+
+        <h3 id="cli">7.2 Claude Code CLI：settings.json（可选）</h3>
+        <p>如果你只用桌面版，可以跳过这一节。CLI 和桌面版可以同时配置，它们各自保存认证信息，互不冲突。</p>
+
+        <h4>1. 打开配置文件</h4>
+        <p>Windows 用户级配置文件路径是：</p>
+        <div class="codeblock">
+          <div class="code-head"><span>路径</span></div>
+          <button class="copy" type="button">复制</button>
+          <pre><code>%USERPROFILE%\.claude\settings.json</code></pre>
+        </div>
+        <p>没有 <span class="mono">.claude</span> 目录就新建一个；没有 <span class="mono">settings.json</span> 就新建文件。项目级配置在项目根目录的 <span class="mono">.claude\settings.json</span>，适合按项目覆盖；本文用用户级，一次配好所有项目。</p>
+
+        <h4>2. 写入完整配置</h4>
+        <p>把下面这段写进去。前三个是核心；后面几个是模型槽位，用来防止 Claude Code 用 Haiku / Opus / 子 Agent 的名字发请求时找不到统一模型。</p>
+        <div class="codeblock">
+          <div class="code-head"><span>JSON · %USERPROFILE%\.claude\settings.json</span></div>
+          <button class="copy" type="button">复制</button>
+          <pre><code>{
+  "env": {
+    "ANTHROPIC_BASE_URL": "http://127.0.0.1:8787",
+    "ANTHROPIC_AUTH_TOKEN": "sk-local-placeholder",
+    "ANTHROPIC_MODEL": "claude-sonnet-4-5",
+    "ANTHROPIC_SMALL_FAST_MODEL": "claude-sonnet-4-5",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "claude-sonnet-4-5",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "claude-sonnet-4-5",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-sonnet-4-5",
+    "CLAUDE_CODE_SUBAGENT_MODEL": "claude-sonnet-4-5"
+  }
+}</code></pre>
+        </div>
+
+        <ul class="checklist">
+          <li><span class="mono">ANTHROPIC_BASE_URL</span> 填 TokenHUB 的 Anthropic 根地址，<strong>不要加 <span class="mono">/v1</span></strong>；Claude Code 会自己拼 <span class="mono">/v1/messages</span>。</li>
+          <li><span class="mono">ANTHROPIC_AUTH_TOKEN</span> 在 TokenHUB 关闭本地访问 Key 时可以填任意非空占位值；如果启用了本地 Key，必须换成那个 Key。</li>
+          <li><span class="mono">ANTHROPIC_MODEL</span> 必须是「模型」页里存在的 ID；本文是统一模型 <span class="mono">claude-sonnet-4-5</span>。</li>
+          <li>后面几个模型槽位不是必需，但强烈建议一起写；Claude Code 的后台任务、子 Agent 可能用不同槽位，漏掉就会出现「主对话正常、子任务 404」。</li>
+        </ul>
+
+        <div class="callout">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 8h.01M11 12h1v4h1"></path></svg>
+          <p><strong>如果你的 Claude Code 版本只读 <span class="mono">ANTHROPIC_API_KEY</span>：</strong>把同一个 Token 也写成 <span class="mono">ANTHROPIC_API_KEY</span>。不要同时保留官方登录态和自定义 Token；两套认证混在一起时，先清掉旧的 shell 环境变量，再重开终端。</p>
+        </div>
+
+        <h4>3. 重开终端并验证</h4>
+        <p>保存文件后关闭当前终端，重新打开。进入项目目录运行 <span class="mono">claude</span>，然后用两个命令确认配置真的生效：</p>
+        <div class="codeblock">
+          <div class="code-head"><span>Claude Code 会话内</span></div>
+          <button class="copy" type="button">复制</button>
+          <pre><code>/status
+/model</code></pre>
+        </div>
+        <p><span class="mono">/status</span> 里应能看到 Anthropic Base URL 指向 <span class="mono">http://127.0.0.1:8787</span>；<span class="mono">/model</span> 应显示 <span class="mono">claude-sonnet-4-5</span>。也可以用非交互模式做一条最小验证：</p>
+        <div class="codeblock">
+          <div class="code-head"><span>PowerShell</span></div>
+          <button class="copy" type="button">复制</button>
+          <pre><code>claude -p "只回复：链路正常"</code></pre>
+        </div>
+
+        <div class="callout warn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 9v4"></path><path d="M12 17h.01"></path><path d="M10.3 3.9L2.4 18a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"></path></svg>
+          <p><strong>如果它仍然要求登录 Anthropic：</strong>先检查配置文件路径是不是 <span class="mono">%USERPROFILE%\.claude\settings.json</span>、JSON 有没有语法错误、项目里是否有另一份 <span class="mono">.claude\settings.json</span> 覆盖了它。再看 shell 里有没有旧的 <span class="mono">ANTHROPIC_BASE_URL</span> 或 <span class="mono">ANTHROPIC_API_KEY</span>。配置正确时，Claude Code 会直接用 TokenHUB，不会走官方登录。</p>
+        </div>
+
+        <details>
+          <summary>不想改文件：用 PowerShell 设置用户环境变量</summary>
+          <div class="details-body">
+            <p>可以改用 <span class="mono">setx</span> 写入用户环境变量，然后重开终端：</p>
+            <div class="codeblock">
+              <div class="code-head"><span>PowerShell</span></div>
+              <button class="copy" type="button">复制</button>
+              <pre><code>setx ANTHROPIC_BASE_URL "http://127.0.0.1:8787"
+setx ANTHROPIC_AUTH_TOKEN "sk-local-placeholder"
+setx ANTHROPIC_MODEL "claude-sonnet-4-5"</code></pre>
+            </div>
+            <p>这种方式只设置三个核心变量，模型槽位仍需自己补。settings.json 更好维护，也更适合多项目；两种方式不要同时写不同的值。</p>
+          </div>
+        </details>
+      </section>
+
+      <section class="block" id="verify">
+        <p class="section-kicker">08 · Verify</p>
+        <h2>验证：确认请求真的走了 DeepSeek</h2>
+        <p class="section-lead">Claude Code 能回答不代表走对了上游。打开 TokenHUB 的概览和历史，看供应商与上游模型字段，才是可靠证据。</p>
+
+        <div class="step-list">
+          <div class="step-item">
+            <span class="step-no">1</span>
+            <div>
+              <h4>发一条请求</h4>
+              <p>在 Claude Code 里让它读一个文件或直接问一句「只回复 OK」。请求会经过 TokenHUB，概览页的今日请求数应增加。</p>
+            </div>
+          </div>
+          <div class="step-item">
+            <span class="step-no">2</span>
+            <div>
+              <h4>看最近请求</h4>
+              <p>打开 TokenHUB「概览」→「最近请求」，展开刚才那条。重点看三列：供应商、上游模型、协议。正常情况应是 <strong>OpenCode Go</strong> + <span class="mono">deepseek-v4.1-flash</span>。</p>
+            </div>
+          </div>
+          <div class="step-item">
+            <span class="step-no">3</span>
+            <div>
+              <h4>测试一次切换</h4>
+              <p>到「供应商」页把 OpenCode Go 的开关关掉，再发一条请求。历史里应显示 DeepSeek + <span class="mono">deepseek-flash</span>，说明兜底链路生效。测试完记得把开关打开。</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="callout ok">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"></path></svg>
+          <p><strong>如何确认不是 Claude 在回答：</strong>不要问模型「你是谁」，模型自报身份不可靠。展开历史记录，看「上游模型」是 <span class="mono">deepseek-v4.1-flash</span> 还是 <span class="mono">deepseek-flash</span>；如果显示 <span class="mono">claude-sonnet-4-5</span>，说明这次被 CommandCode 的原生 Claude 模型接走了。再看「切换来源」，能知道是否发生过供应商切换。</p>
+        </div>
+
+        <h3>失败时会发生什么</h3>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th scope="col">情况</th><th scope="col">TokenHUB 的行为</th><th scope="col">你要做什么</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>OpenCode Go 额度耗尽 / 429 被判为额度问题</td>
+                <td>切到下一个可用供应商，供应商进入额度冷却（默认 5 小时，可配置）</td>
+                <td>等冷却，或到概览卡点「恢复」；也可以临时停用该供应商。</td>
+              </tr>
+              <tr>
+                <td>429 限流</td>
+                <td>切到下一个可用供应商；冷却按 Retry-After，缺失时 60 秒</td>
+                <td>通常无需操作，等冷却结束。</td>
+              </tr>
+              <tr>
+                <td>401 / 403 鉴权失败</td>
+                <td>跳过该供应商，继续尝试其他候选</td>
+                <td>更新对应供应商的 Key；更新后状态会自动清除，或手动点恢复。</td>
+              </tr>
+              <tr>
+                <td>5xx / 网络错误 / 超时</td>
+                <td>先按需换协议入口，再切到下一个供应商；瞬态冷却 10 秒起，连续失败退避到 60 秒</td>
+                <td>看历史里的错误分类；频繁出现时检查网络或上游状态。</td>
+              </tr>
+              <tr>
+                <td>404 模型不存在</td>
+                <td>先试另一协议入口，再切下一个有该模型的供应商，并触发一次目录刷新（60 秒限流）</td>
+                <td>核对统一模型的 targets 是否与模型页 ID 完全一致。</td>
+              </tr>
+              <tr>
+                <td>400 / 422 请求本身有误</td>
+                <td>不切换供应商；首字节前可能先换协议入口重试一次</td>
+                <td>看错误体，通常是参数或上下文问题，不是 Key。</td>
+              </tr>
+              <tr>
+                <td>流式已出首字节后中断</td>
+                <td>结束当前流，不切换供应商；按瞬态冷却，客户端主动断开除外</td>
+                <td>避免把半截回答重放到另一家；可以重新发起请求。</td>
+              </tr>
+              <tr>
+                <td>全部候选都不可用</td>
+                <td>返回 503；有冷却中的候选时附带 Retry-After（最短剩余秒数）</td>
+                <td>按剩余秒数等待，或检查供应商是否都被禁用 / Key 失效。</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="callout">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 8h.01M11 12h1v4h1"></path></svg>
+          <p><strong>流式请求只有首字节前允许切换。</strong>一旦开始返回内容，TokenHUB 不会把请求重放到另一家，避免客户端收到两段互相矛盾的回复。所以「回答到一半断了」不会自动续写；重新发起请求即可。</p>
+        </div>
+      </section>
+
+      <section class="block" id="troubleshooting">
+        <p class="section-kicker">09 · Troubleshooting</p>
+        <h2>常见问题：按症状定位</h2>
+        <p class="section-lead">先看 Claude Code 报什么，再看 TokenHUB 历史里的错误分类；不要一上来就换 Key。</p>
+
+        <details>
+          <summary>Claude Code 仍然弹出 Anthropic 登录 / 桌面版没有走 Gateway</summary>
+          <div class="details-body">
+            <p><strong>桌面版：</strong>确认 Developer Mode 已开启，Developer → Configure Third-Party Inference 里已选 Gateway、填了本地地址和 Key，并且点过 Apply locally → Relaunch now。Gateway base URL 填 <span class="mono">http://127.0.0.1:8787</span>，不要加 <span class="mono">/v1</span>；如果版本要求 HTTPS 或打开了 Allow External URLs，按第 7.1 节的提示处理。</p>
+            <p><strong>CLI：</strong>检查配置文件是否在 <span class="mono">%USERPROFILE%\.claude\settings.json</span>；JSON 是否合法（不能有尾逗号）；项目里是否有 <span class="mono">.claude\settings.json</span> 覆盖；shell 里是否还有旧的 <span class="mono">ANTHROPIC_BASE_URL</span> / <span class="mono">ANTHROPIC_API_KEY</span>。改完后重开终端，运行 <span class="mono">/status</span> 确认地址。</p>
+          </div>
+        </details>
+
+        <details>
+          <summary>401：Unauthorized</summary>
+          <div class="details-body">
+            <p>两种可能：客户端带的本地 Token 与 TokenHUB 的本地访问 Key 不一致；或者某个供应商的 Key 失效。桌面版检查 Gateway API key，CLI 检查 <span class="mono">ANTHROPIC_AUTH_TOKEN</span>，两者都要和设置页的本地访问 Key 一致（未启用本地 Key 时填任意非空值）。再看 TokenHUB 概览卡上该供应商是否显示「鉴权失败」；供应商 Key 更新后会自动恢复。</p>
+          </div>
+        </details>
+
+        <details>
+          <summary>404：model_not_found</summary>
+          <div class="details-body">
+            <p>最常见的原因是统一模型的 target 与模型页显示的上游 ID 不完全一致，包括命名空间前缀、大小写和短横线。到「模型」页确认供应商确实有该模型，再编辑统一模型，从下拉候选里选，不要手打。若模型是刚加的，先点「刷新全部模型」。</p>
+            <p>桌面版还要确认 Model list 里选的是统一 ID <span class="mono">claude-sonnet-4-5</span>，不是上游 ID；CLI 则检查 <span class="mono">ANTHROPIC_MODEL</span> 与所有模型槽位。</p>
+          </div>
+        </details>
+
+        <details>
+          <summary>DeepSeek 的 Messages 入口 404 / 405</summary>
+          <div class="details-body">
+            <p>DeepSeek 官方 Anthropic 入口在 <span class="mono">/anthropic/v1</span>，不是 OpenAI 的 <span class="mono">/v1</span>。用官方域名时 TokenHUB 会自动推导；如果你用的是自建或中转的 DeepSeek 兼容服务，编辑供应商，在「Anthropic Base URL」里填它真正的 Claude 格式地址（含版本路径）。留空时该地址会回退到 Base URL，可能因此打到错误的路径。</p>
+          </div>
+        </details>
+
+        <details>
+          <summary>400：OpenCode Go 提示缺少 session 或 User-Agent</summary>
+          <div class="details-body">
+            <p>OpenCode Go 要求 <span class="mono">x-opencode-session</span> 与可识别的 User-Agent。走 TokenHUB 时它会自动补；只有你用 curl 直连上游才需要自己带。出现这个错误时，先确认请求确实发给了 TokenHUB，而不是旧配置里的上游地址。</p>
+          </div>
+        </details>
+
+        <details>
+          <summary>503：所有候选都不可用</summary>
+          <div class="details-body">
+            <p>三家供应商可能都在冷却、被禁用或鉴权失败。看响应头 <span class="mono">Retry-After</span>，按剩余秒数等待；也可以到概览卡点「恢复」手动清零，或到供应商页检查开关和 Key。刚测试完切换时，记得把停用的供应商重新打开。</p>
+          </div>
+        </details>
+
+        <details>
+          <summary>CommandCode 额度卡报错，但模型能用</summary>
+          <div class="details-body">
+            <p>CommandCode 的额度接口是控制台同款内部接口。403 或响应无法识别会按探针失败处理，不代表 Key 无效；401 才是 Key 无效。模型能用就先继续用，额度卡的问题可以稍后看；未识别套餐按月上限 70 美元估算。</p>
+          </div>
+        </details>
+
+        <details>
+          <summary>主对话正常，子任务或后台任务 404</summary>
+          <div class="details-body">
+            <p><strong>CLI：</strong>Claude Code 可能用 Haiku / Opus / 子 Agent 槽位发请求，而你只映射了 <span class="mono">claude-sonnet-4-5</span>。把 <span class="mono">ANTHROPIC_DEFAULT_HAIKU_MODEL</span>、<span class="mono">ANTHROPIC_DEFAULT_SONNET_MODEL</span>、<span class="mono">ANTHROPIC_DEFAULT_OPUS_MODEL</span>、<span class="mono">CLAUDE_CODE_SUBAGENT_MODEL</span> 都设成同一个统一模型 ID。</p>
+            <p><strong>桌面版：</strong>先在模型下拉里固定选 <span class="mono">claude-sonnet-4-5</span>；如果 Chat / Cowork / Code 仍会自动切到 Haiku 或 Opus，给这些 Claude 模型名也建同样目标的统一模型，或在设置里关闭自动切换（以当前版本为准）。</p>
+          </div>
+        </details>
+
+        <details>
+          <summary>模型列表是空的 / 没有 DeepSeek</summary>
+          <div class="details-body">
+            <p>先点「刷新全部模型」。有些服务不提供 <span class="mono">/models</span>，这时编辑供应商，在「手动模型」里填模型 ID，多个用逗号分隔。请求一个本地目录里没有的模型也会触发一次目录刷新，但 60 秒内最多一次。</p>
+            <p>桌面版的 Model list 如果为空，直接手动添加 <span class="mono">claude-sonnet-4-5</span>；它只要能从 TokenHUB 的 <span class="mono">/v1/models</span> 查到就会生效。</p>
+          </div>
+        </details>
+
+        <details>
+          <summary>DeepSeek 余额卡很久不更新</summary>
+          <div class="details-body">
+            <p>DeepSeek 余额最多每 5 分钟探测一次，这是为了避免频繁请求。额度刷新间隔设置只影响其他供应商；余额低于阈值时会被视为耗尽。探针失败不会改变路由状态，连续失败 3 次会暂停该探针。</p>
+          </div>
+        </details>
+
+        <details>
+          <summary>端口 8787 被占用 / 改了端口</summary>
+          <div class="details-body">
+            <p>应用仍然会打开，只是服务未启动。到「设置」换一个可用端口并保存，再同步改客户端：CLI 改 <span class="mono">ANTHROPIC_BASE_URL</span>，桌面版改 Gateway base URL，然后重启客户端。配置、Key 和历史不受影响；新端口启动失败时旧端口会继续服务。</p>
+          </div>
+        </details>
+
+        <details>
+          <summary>Claude Code 桌面版找不到 Developer 菜单 / Gateway URL 被拒绝</summary>
+          <div class="details-body">
+            <p>找不到 Developer 菜单：升级 Claude 桌面版到支持第三方推理的版本，按 Help → Troubleshooting → Enable Developer Mode 开启，并完全退出、重新打开应用。不要把网页版 <span class="mono">claude.ai</span> 当成桌面客户端；网页版没有 Developer Mode 与 Gateway 配置。</p>
+            <p>Gateway URL 被拒绝：先确认填的是 <span class="mono">http://127.0.0.1:8787</span>，没有多余路径；如果版本强制 HTTPS，改用 7.2 的 CLI，或在 TokenHUB 前加本地 HTTPS 反向代理。不要为了绕过校验把 TokenHUB 暴露到公网。</p>
+          </div>
+        </details>
+      </section>
+
+      <section class="block" id="security">
+        <p class="section-kicker">10 · Boundaries</p>
+        <h2>安全边界：它保护什么，不做什么</h2>
+        <p class="section-lead">TokenHUB 是本地进程，不是云端中转。把边界说清楚，比多列几个特性更有用。</p>
+
+        <div class="mini-grid">
+          <div class="mini">
+            <h3>只监听回环地址</h3>
+            <p>服务绑定 <span class="mono">127.0.0.1</span>，不接受局域网或公网连接，不需要开放防火墙端口。</p>
+          </div>
+          <div class="mini">
+            <h3>Key 由 DPAPI 加密</h3>
+            <p>供应商 Key 与本地访问 Key 存在 <span class="mono">secrets.bin</span>，界面不回显，日志与历史不落 Key。</p>
+          </div>
+          <div class="mini">
+            <h3>历史只存元数据</h3>
+            <p>记录模型、供应商、Token、耗时、首字节、错误分类与切换来源，不保存提示词和回复正文。</p>
+          </div>
+          <div class="mini">
+            <h3>没有遥测上报</h3>
+            <p>不做用量分析或行为上报；只有你主动发起的请求会到达对应供应商。</p>
+          </div>
+          <div class="mini">
+            <h3>可选的本地访问保护</h3>
+            <p>开启后请求必须带 Bearer 或 <span class="mono">x-api-key</span>；关闭时本机程序可直接访问，适合单人开发机。</p>
+          </div>
+          <div class="mini">
+            <h3>迁移注意</h3>
+            <p><span class="mono">config.json</span> 与历史可以复制；<span class="mono">secrets.bin</span> 与写入它的 Windows 用户 / 实例绑定，复制到其他数据目录通常会解密失败。换机建议重新录入 Key。</p>
+          </div>
+        </div>
+
+        <h3>它不做什么</h3>
+        <ul class="checklist">
+          <li>不是负载均衡器：严格按优先级，不轮询、不按延迟或价格自动选路。</li>
+          <li>只覆盖 Chat 与 Messages：不代理 Embeddings、Rerank、Realtime、Batch 等端点。</li>
+          <li>单机单用户：没有团队配额、审计日志或多租户隔离。</li>
+          <li>当前只发布 Windows 安装包；macOS / Linux 尚未打包验证。</li>
+          <li>0.1.0 早期版本：配置结构与界面仍可能调整。</li>
+        </ul>
+
+        <div class="callout warn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 9v4"></path><path d="M12 17h.01"></path><path d="M10.3 3.9L2.4 18a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"></path></svg>
+          <p><strong>不要把本地服务暴露到公网。</strong>TokenHUB 的设计前提是「只在本机用」。如果确实需要给局域网其他设备用，请自己加反向代理、鉴权和 TLS，并确认上游供应商条款允许；这不是本文的默认配置。</p>
+        </div>
+      </section>
+
+      <section class="block" id="cheatsheet">
+        <p class="section-kicker">11 · Cheat sheet</p>
+        <h2>一页速查</h2>
+        <p class="section-lead">配置完成后，用这张表逐项验收；任何一项不通过，回到对应章节。</p>
+
+        <div class="quick-grid">
+          <div class="quick-card">
+            <h4>桌面版入口</h4>
+            <p>Developer → Configure Third-Party Inference</p>
+          </div>
+          <div class="quick-card">
+            <h4>CLI 配置路径</h4>
+            <p><span class="mono">%USERPROFILE%\.claude\settings.json</span></p>
+          </div>
+          <div class="quick-card">
+            <h4>TokenHUB Anthropic 地址</h4>
+            <p><span class="mono">http://127.0.0.1:8787</span>（不要加 <span class="mono">/v1</span>）</p>
+          </div>
+          <div class="quick-card">
+            <h4>统一模型 ID</h4>
+            <p><span class="mono">claude-sonnet-4-5</span></p>
+          </div>
+          <div class="quick-card">
+            <h4>上游模型 ID</h4>
+            <p>OpenCode Go：<span class="mono">deepseek-v4.1-flash</span><br>DeepSeek：<span class="mono">deepseek-flash</span></p>
+          </div>
+        </div>
+
+        <h3>验收清单</h3>
+        <ul class="checklist">
+          <li>TokenHUB 概览显示服务运行中，端口与客户端配置一致。</li>
+          <li>OpenCode Go 已启用并放在第一位，测试连接能看到 <span class="mono">deepseek-v4.1-flash</span>。</li>
+          <li>DeepSeek 已启用，余额卡有数据，模型页能看到 <span class="mono">deepseek-flash</span>。</li>
+          <li>CommandCode Goat 已启用；模型列表里有 Claude / DeepSeek 模型时再按需映射。</li>
+          <li>统一模型 <span class="mono">claude-sonnet-4-5</span> 至少映射了 OpenCode Go 与 DeepSeek 两个目标。</li>
+          <li>桌面版已 Apply locally 并重启，模型下拉里能选到 <span class="mono">claude-sonnet-4-5</span>，新建会话能返回内容。</li>
+          <li>如果使用 CLI：<span class="mono">/status</span> 指向 <span class="mono">127.0.0.1:8787</span>，<span class="mono">/model</span> 显示统一模型 ID，<span class="mono">claude -p "只回复：链路正常"</span> 能返回内容。</li>
+          <li>TokenHUB 历史里，上游模型是 <span class="mono">deepseek-v4.1-flash</span>；停用 OpenCode Go 后能切到 <span class="mono">deepseek-flash</span>。</li>
+        </ul>
+
+        <h3>CLI 最小配置片段</h3>
+        <div class="codeblock">
+          <div class="code-head"><span>JSON · 最小可用</span></div>
+          <button class="copy" type="button">复制</button>
+          <pre><code>{
+  "env": {
+    "ANTHROPIC_BASE_URL": "http://127.0.0.1:8787",
+    "ANTHROPIC_AUTH_TOKEN": "sk-local-placeholder",
+    "ANTHROPIC_MODEL": "claude-sonnet-4-5"
+  }
+}</code></pre>
+        </div>
+        <p class="small">如果只用主对话，这三行就够；一旦出现子任务 404，再补上 7.2 节的 Haiku / Sonnet / Opus / 子 Agent 槽位变量。</p>
+
+        <h3>CLI 常用命令</h3>
+        <p class="small">桌面版按 7.1 的 GUI 配置，不需要这些命令；下面只适用于 CLI。</p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th scope="col">场景</th><th scope="col">命令</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>检查 Claude Code 版本</td><td class="mono">claude --version</td></tr>
+              <tr><td>检查安装环境</td><td class="mono">claude doctor</td></tr>
+              <tr><td>查看当前 API 配置</td><td class="mono">/status</td></tr>
+              <tr><td>查看 / 切换模型</td><td class="mono">/model</td></tr>
+              <tr><td>非交互验证</td><td class="mono">claude -p "只回复：链路正常"</td></tr>
+              <tr><td>npm 镜像安装</td><td class="mono">npm install -g @anthropic-ai/claude-code</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="callout ok">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"></path></svg>
+          <p><strong>最后一句话：</strong>Claude Code 只是前端，TokenHUB 才是路由层。把统一模型 ID 设成 Claude 认识的名字，把上游 ID 留给 TokenHUB 去匹配；以后换供应商、换套餐、换 Key，都不需要再动 Claude Code 的配置。</p>
+        </div>
+      </section>
+
+      <footer class="footer">
+        <p><strong>TokenHUB · 本地多供应商大模型网关</strong></p>
+        <p>本文基于 TokenHUB v0.1.0 与 2026-10-30 的供应商接口整理。模型 ID、额度规则、Claude Code 环境变量可能随版本变化，请以应用内「模型」页和供应商官方文档为准。</p>
+        <p>文章不含截图；界面文字与字段名以当前中文版应用为准。仅监听 <span class="mono">127.0.0.1</span>，Key 由 Windows DPAPI 加密保存。</p>
+        <a class="back-top" href="#top">回到顶部 ↑</a>
+      </footer>
+    </article>
+  </div>
+</main>
+
+<script>
+  (() => {
+    const progress = document.getElementById('progressBar')
+    const updateProgress = () => {
+      const doc = document.documentElement
+      const total = doc.scrollHeight - doc.clientHeight
+      const percent = total > 0 ? Math.min(100, Math.max(0, (doc.scrollTop / total) * 100)) : 0
+      if (progress) progress.style.width = percent + '%'
+    }
+    updateProgress()
+    window.addEventListener('scroll', updateProgress, { passive: true })
+    window.addEventListener('resize', updateProgress)
+
+    document.querySelectorAll('.codeblock').forEach((block) => {
+      const button = block.querySelector('.copy')
+      const code = block.querySelector('code')
+      if (!button || !code) return
+      button.addEventListener('click', async () => {
+        const text = code.innerText
+        try {
+          await navigator.clipboard.writeText(text)
+        } catch {
+          const range = document.createRange()
+          range.selectNodeContents(code)
+          const selection = window.getSelection()
+          selection.removeAllRanges()
+          selection.addRange(range)
+          document.execCommand('copy')
+          selection.removeAllRanges()
+        }
+        button.textContent = '已复制'
+        button.classList.add('copied')
+        window.setTimeout(() => {
+          button.textContent = '复制'
+          button.classList.remove('copied')
+        }, 1600)
+      })
+    })
+
+    const links = Array.from(document.querySelectorAll('.toc a[href^="#"]'))
+    const targets = links
+      .map((link) => document.querySelector(link.getAttribute('href')))
+      .filter(Boolean)
+    const setActive = () => {
+      let current = targets[0]
+      for (const target of targets) {
+        if (target.getBoundingClientRect().top <= 100) current = target
+        else break
+      }
+      links.forEach((link) => {
+        link.classList.toggle('active', Boolean(current) && link.getAttribute('href') === '#' + current.id)
+      })
+    }
+    setActive()
+    window.addEventListener('scroll', setActive, { passive: true })
+    window.addEventListener('resize', setActive)
+  })()
+</script>
+</body>
+</html>
