@@ -1,19 +1,47 @@
+# 依赖
 node_modules/
+
+# 构建与打包产物
 out/
 dist/
 release/
 release-dist*/
+release-build/
+
+# 测试与覆盖率
 coverage/
 test-results/
 playwright-report/
 blob-report/
+
+# 日志与本地环境
 *.log
+logs/
 .env
 .env.*
+!.env.example
 *.local
+
+# 本地密钥与证书
+secrets.bin
+*.pem
+*.key
+*.pfx
+*.p12
+
+# 编辑器 / 系统 / 临时文件
 .vscode/
 .idea/
 .DS_Store
 Thumbs.db
+Desktop.ini
+*.tsbuildinfo
+*.tmp
+*.swp
+*~
+
+# 智能体本地工作区
 .superpowers/
-release-build/
+
+# 一次性推广素材，含 DOCX/ZIP 等生成物，Pages 不发布
+docs/toutiao/
