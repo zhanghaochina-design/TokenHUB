@@ -38,6 +38,7 @@ export function registerIpc(
   ipcMain.handle('tokenhub:setLocalKey', (_e, key: string | null) => hub.setLocalKey(key))
   ipcMain.handle('tokenhub:setPaused', (_e, paused: boolean) => hub.setPaused(paused))
   ipcMain.handle('tokenhub:getHistory', (_e, day: string, limit?: number) => hub.getHistory(day, limit))
+  ipcMain.handle('tokenhub:getSpeedStats', (_e, day: string) => hub.getSpeedStats(day))
   ipcMain.handle('tokenhub:getUpdateState', () => updateController.getState())
   ipcMain.handle('tokenhub:checkForUpdates', () => updateController.check())
   ipcMain.handle('tokenhub:downloadUpdate', () => updateController.download())

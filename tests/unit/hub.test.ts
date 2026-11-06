@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { connect, createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -464,6 +464,31 @@ describe('Hub', () => {
     expect(hub.getState().providers[0].name).toBe('A')
     await expect(hub.updateProvider(id, { name: '  ', baseUrl: 'https://b.example/v1' })).rejects.toThrow('name')
     expect(hub.getState().providers[0].baseUrl).toBe('https://a.example/v1')
+    await hub.shutdown()
+  })
+
+  it('aggregates per-provider speed stats for a day', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'tokenhub-hub-'))
+    await mkdir(join(dir, 'history'), { recursive: true })
+    const rows = [
+      {
+        ts: '2026-11-06T00:00:00.000Z', requestId: 'r1', protocol: 'anthropic', model: 'm', providerId: 'p1',
+        upstreamModel: 'm', stream: true, httpStatus: 200, outcome: 'ok', promptTokens: 1, completionTokens: 100,
+        latencyMs: 1100, firstByteMs: 100, errorKind: null
+      },
+      {
+        ts: '2026-11-06T01:00:00.000Z', requestId: 'r2', protocol: 'anthropic', model: 'm', providerId: 'p1',
+        upstreamModel: 'm', stream: true, httpStatus: 200, outcome: 'ok', promptTokens: 1, completionTokens: 200,
+        latencyMs: 1100, firstByteMs: 100, errorKind: null
+      }
+    ]
+    await writeFile(join(dir, 'history', '2026-11-06.jsonl'), `${rows.map((row) => JSON.stringify(row)).join('\n')}\n`, 'utf8')
+    const { hub } = await boot({ dir })
+
+    await expect(hub.getSpeedStats('2026-11-06')).resolves.toEqual([
+      { providerId: 'p1', latestTps: 200, latestAt: '2026-11-06T01:00:00.000Z', averageTps: 150, samples: 2 }
+    ])
+    await expect(hub.getSpeedStats('bad')).rejects.toThrow('day')
     await hub.shutdown()
   })
 

@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Pause, Play, RotateCcw, Server } from 'lucide-react'
-import type { AppState, HistoryRecord, ProviderRuntime, QuotaWindow } from '../../core/types'
+import type { AppState, HistoryRecord, ProviderRuntime, ProviderSpeedStats, QuotaWindow } from '../../core/types'
 import { HistoryTable } from '../components/HistoryTable'
 import { QuotaBar } from '../components/QuotaBar'
+import { SpeedGauge } from '../components/SpeedGauge'
 import { Toast } from '../components/Toast'
 import {
   errorKindLabel,
@@ -133,6 +134,7 @@ function ProviderQuota({ provider, runtime, now }: { provider: ProviderWithKey; 
 function ProviderCard({
   provider,
   runtime,
+  speed,
   index,
   now,
   resetting,
@@ -140,6 +142,7 @@ function ProviderCard({
 }: {
   provider: ProviderWithKey
   runtime: ProviderRuntime | undefined
+  speed: ProviderSpeedStats | undefined
   index: number
   now: number
   resetting: boolean
@@ -186,7 +189,15 @@ function ProviderCard({
         </button>
       </div>
 
-      <ProviderQuota provider={provider} runtime={runtime} now={now} />
+      <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-start">
+        <div className="min-w-0 flex-1">
+          <ProviderQuota provider={provider} runtime={runtime} now={now} />
+        </div>
+        <SpeedGauge
+          stats={speed}
+          className="order-first w-[190px] max-w-full shrink-0 self-center sm:order-none sm:mt-3 sm:self-start"
+        />
+      </div>
 
       {runtime?.quota?.fetchedAt && (
         <p className="mt-2 text-[11px] text-muted">额度更新于 {formatDateTime(runtime.quota.fetchedAt)}</p>
@@ -214,6 +225,7 @@ function ProviderCard({
 export function OverviewPage({ state, onOpenProviders, onOpenSettings }: OverviewPageProps) {
   const [history, setHistory] = useState<HistoryRecord[]>([])
   const [historyLoading, setHistoryLoading] = useState(true)
+  const [speedStats, setSpeedStats] = useState<ProviderSpeedStats[]>([])
   const [now, setNow] = useState(() => Date.now())
   const [toast, setToast] = useState<string | null>(null)
   const [resettingId, setResettingId] = useState<string | null>(null)
@@ -231,14 +243,24 @@ export function OverviewPage({ state, onOpenProviders, onOpenSettings }: Overvie
     }
   }, [])
 
+  const loadSpeedStats = useCallback(async () => {
+    try {
+      setSpeedStats(await window.tokenhub.getSpeedStats(localDayKey()))
+    } catch {
+      // 瞬时读取失败时保留上一次读数，避免仪表闪回空表。
+    }
+  }, [])
+
   useEffect(() => {
     void loadHistory()
+    void loadSpeedStats()
     const timer = window.setInterval(() => {
       setNow(Date.now())
       void loadHistory()
+      void loadSpeedStats()
     }, 30_000)
     return () => window.clearInterval(timer)
-  }, [loadHistory])
+  }, [loadHistory, loadSpeedStats])
 
   useEffect(() => {
     if (!toast) return
@@ -249,6 +271,11 @@ export function OverviewPage({ state, onOpenProviders, onOpenSettings }: Overvie
   const runtimeById = useMemo(
     () => new Map(state.runtime.map((runtime) => [runtime.providerId, runtime])),
     [state.runtime]
+  )
+
+  const speedByProvider = useMemo(
+    () => new Map(speedStats.map((item) => [item.providerId, item])),
+    [speedStats]
   )
 
   const stats = state.stats
@@ -416,6 +443,7 @@ export function OverviewPage({ state, onOpenProviders, onOpenSettings }: Overvie
                 key={provider.id}
                 provider={provider}
                 runtime={runtimeById.get(provider.id)}
+                speed={speedByProvider.get(provider.id)}
                 index={index}
                 now={now}
                 resetting={resettingId === provider.id}

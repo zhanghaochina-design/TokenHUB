@@ -7,6 +7,7 @@ import type {
   ModelAlias,
   ProtocolScanResult,
   ProviderConfig,
+  ProviderSpeedStats,
   QuotaSnapshot,
   Settings,
   TodayStats
@@ -15,6 +16,7 @@ import { defaultConfig, loadConfig, saveConfig } from './store/config'
 import { readText, writeFileAtomic } from './store/fsUtil'
 import { SecretStore, type CipherPort } from './store/secrets'
 import { HistoryStore } from './history/store'
+import { computeSpeedStats } from './speed'
 import { Logger } from './store/logger'
 import { RuntimeStore } from './router/runtime'
 import { buildCatalog } from './providers/catalog'
@@ -551,6 +553,11 @@ export class Hub {
   async getHistory(day: string, limit?: number): Promise<HistoryRecord[]> {
     if (!DAY_PATTERN.test(day)) throw new Error('day must be formatted as YYYY-MM-DD')
     return this.history.list(day, limit)
+  }
+
+  async getSpeedStats(day: string): Promise<ProviderSpeedStats[]> {
+    if (!DAY_PATTERN.test(day)) throw new Error('day must be formatted as YYYY-MM-DD')
+    return computeSpeedStats(await this.history.list(day, Number.MAX_SAFE_INTEGER))
   }
 
   onStateChange(cb: (state: AppState) => void): void {

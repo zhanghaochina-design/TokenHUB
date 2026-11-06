@@ -146,6 +146,14 @@ export interface HistorySink {
   append(record: HistoryRecord): Promise<void>
 }
 
+export interface ProviderSpeedStats {
+  providerId: string
+  latestTps: number | null
+  latestAt: string | null
+  averageTps: number | null
+  samples: number
+}
+
 export interface TodayStats {
   requests: number
   promptTokens: number

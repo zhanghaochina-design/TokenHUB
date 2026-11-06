@@ -1,4 +1,4 @@
-import type { AppState, HistoryRecord, ModelAlias, Preset, ProtocolScanResult, ProviderConfig, QuotaAdapterId, QuotaSnapshot, Settings } from './types'
+import type { AppState, HistoryRecord, ModelAlias, Preset, ProtocolScanResult, ProviderConfig, ProviderSpeedStats, QuotaAdapterId, QuotaSnapshot, Settings } from './types'
 
 export interface ProviderInput {
   preset: Preset
@@ -46,6 +46,7 @@ export interface TokenHubApi {
   setLocalKey(key: string | null): Promise<void>
   setPaused(paused: boolean): Promise<void>
   getHistory(day: string, limit?: number): Promise<HistoryRecord[]>
+  getSpeedStats(day: string): Promise<ProviderSpeedStats[]>
   getUpdateState(): Promise<UpdateState>
   checkForUpdates(): Promise<UpdateState>
   downloadUpdate(): Promise<UpdateState>
