@@ -195,7 +195,7 @@ function ProviderCard({
         </div>
         <SpeedGauge
           stats={speed}
-          className="order-first w-[190px] max-w-full shrink-0 self-center sm:order-none sm:mt-3 sm:self-start"
+          className="order-first w-[170px] max-w-full shrink-0 self-center sm:order-none sm:mt-3 sm:self-start min-[1100px]:w-[190px]"
         />
       </div>
 
