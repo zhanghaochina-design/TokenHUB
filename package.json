@@ -1,6 +1,6 @@
 {
   "name": "tokenhub",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "private": true,
   "description": "Local multi-provider LLM API router",
   "author": "TokenHUB contributors",
