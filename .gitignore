@@ -40,8 +40,25 @@ Desktop.ini
 *.swp
 *~
 
-# 智能体本地工作区
+# 智能体本地工作区与工具配置（共享规则以 AGENTS.md 为准）
 .superpowers/
+.claude/
+.qoder/
+.cursor/
+.agents/
+.codex/
+.gemini/
+.windsurf/
+.trae/
+.kiro/
+.continue/
+.aider*
+.openhands/
+
+# 本地规则覆盖与 MCP 配置（可能含密钥）
+AGENTS.local.md
+*.local.md
+.mcp.json
 
 # 一次性推广素材，含 DOCX/ZIP 等生成物，Pages 不发布
 docs/toutiao/

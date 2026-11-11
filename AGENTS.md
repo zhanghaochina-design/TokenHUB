@@ -22,6 +22,7 @@
 - `tests/unit`、`tests/integration`、`tests/e2e`：单测、假上游集成、Playwright Electron。
 - `docs/readme/`：HTML README 的模板、截图与生成脚本；产物是根目录 `README.html`，不要直接改产物。
 - `docs/toutiao/`：头条推广素材（含 DOCX/ZIP 生成物），整目录忽略，不入库。
+- 共享 agent 规则只写 `AGENTS.md`；`.claude/`、`.qoder/`、`.cursor/` 等工具目录及 `.mcp.json`、`AGENTS.local.md` 属本地状态，已忽略不入库。
 
 ## 稳定契约与易踩的坑
 
