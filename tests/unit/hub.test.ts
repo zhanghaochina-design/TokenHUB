@@ -66,6 +66,14 @@ describe('Hub', () => {
     await hub.shutdown()
   })
 
+  it('exposes per-provider concurrency slots in state', async () => {
+    const { hub } = await boot()
+    await hub.addProvider({ preset: 'opencode-go', name: 'Go', baseUrl: 'https://opencode.ai/zen/go/v1', apiKey: 'sk-1' })
+    const id = hub.getState().providers[0].id
+    expect(hub.getState().concurrency).toEqual([{ providerId: id, active: 0, limit: 3 }])
+    await hub.shutdown()
+  })
+
   it('reorders, disables and deletes providers', async () => {
     const { hub } = await boot()
     await hub.addProvider({ preset: 'custom', name: 'A', baseUrl: 'https://a.example/v1', apiKey: 'ka' })

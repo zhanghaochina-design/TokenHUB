@@ -20,7 +20,8 @@ import { computeSpeedStats } from './speed'
 import { Logger } from './store/logger'
 import { RuntimeStore } from './router/runtime'
 import { buildCatalog } from './providers/catalog'
-import { createProviderFromPreset } from './providers/presets'
+import { createProviderFromPreset, providerConcurrencyLimit } from './providers/presets'
+import { ProviderGate } from './server/gate'
 import { discoverModels } from './providers/discover'
 import { scanProviderProtocols } from './providers/scan'
 import { startServer } from './server/start'
@@ -87,6 +88,14 @@ function normalizeModels(models: string[]): string[] {
   return [...new Set(models.map((model) => model.trim()).filter(Boolean))]
 }
 
+function validateMaxConcurrency(value: number | undefined): number | undefined {
+  if (value === undefined) return undefined
+  if (!Number.isInteger(value) || value < 0 || value > 64) {
+    throw new Error('maxConcurrency must be an integer between 0 and 64')
+  }
+  return value
+}
+
 function isQuotaSnapshot(value: unknown): value is QuotaSnapshot {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
   const snapshot = value as Record<string, unknown>
@@ -95,6 +104,10 @@ function isQuotaSnapshot(value: unknown): value is QuotaSnapshot {
 
 export class Hub {
   readonly runtime: RuntimeStore
+  // 端口切换时新旧服务共用同一份并发计数；额度卡也直接读它。
+  private readonly gate = new ProviderGate()
+  private gateEmitTimer: ReturnType<typeof setTimeout> | null = null
+  private gateEmitAt = 0
   private config: AppConfig = defaultConfig()
   private secrets!: SecretStore
   private history!: HistoryStore
@@ -125,6 +138,7 @@ export class Hub {
     this.now = options.now ?? (() => new Date())
     this.fetchFn = options.fetchFn
     this.runtime = new RuntimeStore(this.now)
+    this.gate.onChange(() => this.scheduleGateEmit())
   }
 
   async init(): Promise<void> {
@@ -185,6 +199,10 @@ export class Hub {
   async shutdown(): Promise<void> {
     for (const timer of this.timers) clearInterval(timer)
     this.timers = []
+    if (this.gateEmitTimer) {
+      clearTimeout(this.gateEmitTimer)
+      this.gateEmitTimer = null
+    }
     this.scheduler?.stop()
     const server = this.server
     this.server = null
@@ -212,6 +230,11 @@ export class Hub {
         hasKey: this.secrets?.hasProviderKey(provider.id) ?? false
       })),
       runtime: this.config.providers.map((provider) => this.runtime.get(provider.id)),
+      concurrency: this.config.providers.map((provider) => ({
+        providerId: provider.id,
+        active: this.gate.activeCount(provider.id),
+        limit: providerConcurrencyLimit(provider)
+      })),
       catalog: this.catalog,
       aliases: this.config.modelAliases.map((alias) => ({
         id: alias.id,
@@ -242,6 +265,8 @@ export class Hub {
     provider.anthropicBaseUrl = validateOptionalBaseUrl(input.anthropicBaseUrl)
     if (input.quotaAdapter) provider.quotaAdapter = input.quotaAdapter
     if (input.quota) provider.quota = { ...provider.quota, ...input.quota }
+    const maxConcurrency = validateMaxConcurrency(input.maxConcurrency)
+    if (maxConcurrency !== undefined) provider.maxConcurrency = maxConcurrency
     if (input.manualModels) provider.models.manual = normalizeModels(input.manualModels)
 
     this.config.providers.push(provider)
@@ -265,6 +290,7 @@ export class Hub {
     if (nextName !== undefined && !nextName) throw new Error('provider name is required')
     const nextBaseUrl = patch.baseUrl === undefined ? undefined : validateBaseUrl(patch.baseUrl)
     const nextAnthropicBaseUrl = patch.anthropicBaseUrl === undefined ? undefined : validateOptionalBaseUrl(patch.anthropicBaseUrl)
+    const nextMaxConcurrency = validateMaxConcurrency(patch.maxConcurrency)
     let discover = false
     if (nextName !== undefined) provider.name = nextName
     if (nextBaseUrl !== undefined) {
@@ -279,6 +305,7 @@ export class Hub {
     }
     if (patch.quotaAdapter !== undefined) provider.quotaAdapter = patch.quotaAdapter
     if (patch.quota) provider.quota = { ...provider.quota, ...patch.quota }
+    if (nextMaxConcurrency !== undefined) provider.maxConcurrency = nextMaxConcurrency
     if (patch.manualModels !== undefined) {
       provider.models.manual = normalizeModels(patch.manualModels)
       discover = true
@@ -571,6 +598,7 @@ export class Hub {
       getLocalApiKey: () => (this.config.settings.localKeyEnabled ? this.secrets.getLocalApiKey() : null),
       getCatalog: () => this.catalog,
       runtime: this.runtime,
+      gate: this.gate,
       history: this.historySink,
       isPaused: () => this.paused,
       getPort: () => this.server?.port ?? 0,
@@ -744,6 +772,22 @@ export class Hub {
   private schedulerUpdate(): void {
     this.emit()
     void this.syncQuotaCache().catch((error) => this.logAsyncError('quota cache write failed', error))
+  }
+
+  // 并发数每次请求起止都会变化：立即推动一次，随后 500ms 内合并，避免高频 IPC。
+  private scheduleGateEmit(): void {
+    if (this.gateEmitTimer) return
+    const elapsed = Date.now() - this.gateEmitAt
+    if (elapsed >= 500) {
+      this.gateEmitAt = Date.now()
+      this.emit()
+      return
+    }
+    this.gateEmitTimer = setTimeout(() => {
+      this.gateEmitTimer = null
+      this.gateEmitAt = Date.now()
+      this.emit()
+    }, 500 - elapsed)
   }
 
   private emit(): void {

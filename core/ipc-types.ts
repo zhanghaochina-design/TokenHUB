@@ -9,6 +9,7 @@ export interface ProviderInput {
   // 省略时沿用预设自带的适配器（Task 10 测试与预设页都不必重复填写）。
   quotaAdapter?: QuotaAdapterId
   quota?: Partial<ProviderConfig['quota']>
+  maxConcurrency?: number
   manualModels?: string[]
 }
 
@@ -19,6 +20,7 @@ export interface ProviderPatch {
   apiKey?: string
   quotaAdapter?: QuotaAdapterId
   quota?: Partial<ProviderConfig['quota']>
+  maxConcurrency?: number
   manualModels?: string[]
   enabled?: boolean
 }

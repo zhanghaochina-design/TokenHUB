@@ -248,4 +248,80 @@ describe('executeWithFailover', () => {
     })
     expect(seen).toEqual(['a'])
   })
+
+  it('retries a rate-limit 429 once before failing over', async () => {
+    const rt = runtime()
+    const calls: string[] = []
+    const result = await executeWithFailover(candidates, async (c) => {
+      calls.push(c.provider.id)
+      if (c.provider.id === 'a' && calls.filter((id) => id === 'a').length === 1) {
+        return { ok: false, failure: failure('rate_limit') }
+      }
+      return { ok: true, value: c.provider.id }
+    }, rt, { rateLimitRetryMs: 0 })
+
+    expect(calls).toEqual(['a', 'a'])
+    expect(result).toMatchObject({ ok: true, candidate: { provider: { id: 'a' } } })
+    expect(rt.isRoutable('a')).toBe(true)
+  })
+
+  it('skips saturated candidates without marking them failed', async () => {
+    const rt = runtime()
+    const tried: string[] = []
+    const result = await executeWithFailover(candidates.slice(0, 2), async (c) => {
+      if (c.provider.id === 'a') return { ok: false, saturated: true }
+      tried.push(c.provider.id)
+      return { ok: true, value: c.provider.id }
+    }, rt)
+    expect(tried).toEqual(['b'])
+    expect(result).toMatchObject({ ok: true, candidate: { provider: { id: 'b' } } })
+    expect(rt.isRoutable('a')).toBe(true)
+    expect(rt.get('a').consecutiveFailures).toBe(0)
+  })
+
+  it('reports saturation when every candidate is full', async () => {
+    const rt = runtime()
+    const result = await executeWithFailover(candidates, async () => ({ ok: false, saturated: true }), rt)
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.saturated).toBe(true)
+      expect(result.tried).toEqual([])
+    }
+    expect(rt.isRoutable('a')).toBe(true)
+  })
+
+  it('does not retry quota 429 or a long Retry-After', async () => {
+    const rt = runtime()
+    const quotaCalls: string[] = []
+    const quota = await executeWithFailover(candidates.slice(0, 1), async (c) => {
+      quotaCalls.push(c.provider.id)
+      return { ok: false, failure: failure('quota') }
+    }, rt, { rateLimitRetryMs: 0 })
+    expect(quotaCalls).toEqual(['a'])
+    expect(quota.ok).toBe(false)
+
+    const longWaitCalls: string[] = []
+    const longWait = await executeWithFailover(candidates.slice(0, 1), async (c) => {
+      longWaitCalls.push(c.provider.id)
+      return { ok: false, failure: failure('rate_limit', 5_000) }
+    }, rt, { rateLimitRetryMs: 0 })
+    expect(longWaitCalls).toEqual(['a'])
+    expect(longWait.ok).toBe(false)
+  })
+
+  it('stops the retry wait when the client aborts', async () => {
+    const rt = runtime()
+    const controller = new AbortController()
+    let calls = 0
+    const pending = executeWithFailover(candidates.slice(0, 1), async () => {
+      calls += 1
+      return { ok: false, failure: failure('rate_limit') }
+    }, rt, { rateLimitRetryMs: 50, signal: controller.signal })
+    setTimeout(() => controller.abort(), 10)
+    const result = await pending
+
+    expect(calls).toBe(1)
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.failure.kind).toBe('request')
+  })
 })

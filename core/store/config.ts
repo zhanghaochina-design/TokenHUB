@@ -1,6 +1,7 @@
 import { rename } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { AppConfig, ModelAlias, ModelProtocolSupport, ProviderConfig } from '../types'
+import { defaultMaxConcurrency } from '../providers/presets'
 import { readText, writeFileAtomic } from './fsUtil'
 
 export function defaultConfig(): AppConfig {
@@ -97,6 +98,7 @@ function normalizeProvider(raw: unknown): ProviderConfig {
         : undefined,
     quotaAdapter: p.quotaAdapter ?? 'none',
     enabled: p.enabled !== false,
+    maxConcurrency: integerValue(p.maxConcurrency, defaultMaxConcurrency(p.preset ?? 'custom'), 0, 64),
     models: {
       cached: Array.isArray(p.models?.cached) ? p.models.cached.map(String) : [],
       manual: Array.isArray(p.models?.manual) ? p.models.manual.map(String) : [],

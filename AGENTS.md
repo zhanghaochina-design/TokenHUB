@@ -33,12 +33,14 @@
 - CommandCode Goat 用控制台同款 `/alpha/billing/credits`、`/alpha/billing/subscriptions`、`/alpha/whoami`（Bearer Provider API Key）读取 5 小时/周/月额度；未识别套餐时月上限按 $70 估算，余额高于上限时以余额定标；接口未公开，403/解析失败按探针失败处理，401 才是 Key 无效；DeepSeek 用 `/user/balance`。
 - DeepSeek 的 Anthropic 入口与 OpenAI 不同：官方 Anthropic base 为 `https://api.deepseek.com/anthropic/v1`（OpenCode Go/CommandCode 仍与 Base URL 共用）。供应商可配置 `anthropicBaseUrl` 覆盖；留空时 DeepSeek 官方域名自动推导，其它预设沿用 Base URL。扫描与 `/messages` 转发都必须走这个 resolver。
 - Anthropic 转译：`tool_result` 必须排在用户文本之前；如果响应/流里出现 `tool_use` 块，`finish_reason: stop` 也要映射为 `tool_use`；流式故障切换只允许发生在首字节前。
+- Anthropic 用量口径：总输入 = `input_tokens + cache_read_input_tokens + cache_creation_input_tokens`；上游可能只在最终 `message_delta` 给输入量（OpenCode Go 实测 `message_start` 全为 0），旁路解析与非流式读取都不得只看 `message_start` / 单取 `input_tokens`。
 - 上游协议按客户端入口 + 能力表选择：本地 `/v1/messages` 优先直连上游 `/messages`，本地 `/v1/chat/completions` 优先直连 `/chat/completions`；`provider.protocolSupport` 明确不支持时改走另一形状，未知时按预设兜底（CommandCode 按模型，OpenCode Go 两端皆可，其余仅 Chat）。首字节前 400/404/405/422/5xx 会换另一入口重试一次；401/402/429 与首字节后失败不换。CommandCode 的 `claude*` 模型只能走 `/messages`，其余只能走 `/chat/completions`；OpenAI 客户端请求这些 Claude 模型时走双向转译（`core/protocol/openai.ts`）。OpenCode Go 的 `/messages` 实测也支持 DeepSeek（官方文档未标注）。
 - 模型页「扫描」按供应商探测每个模型的 `/messages` 与 `/chat/completions`（max_tokens=16），结果持久化到 `config.json` 的 `protocolSupport`；扫描不写历史、不计供应商冷却。只有同一模型两个入口都 401（Key 无效）才提前停止，403/402 只记录当前模型并继续。
 - 额度探针默认每 5 分钟探测一次（`quotaRefreshSec` 默认 300，可调）；失败按 30s/1m/2m/4m/8m/15m 指数退避并写 WARN 日志，任何一次成功探测（含手动刷新）都清零失败计数，不得永久停用探针。
 - 额度卡速度仪表由 `getSpeedStats(day)` 聚合当天历史：只统计流式成功请求，速度 = 输出 token ÷（总耗时 − 首字节耗时）；生成耗时 <100ms 或速度 >1000 t/s 视为测量噪声，不参与仪表。
 - OpenCode Go 要求 `x-opencode-session` 与可识别 User-Agent：优先透传客户端会话头（`x-claude-code-session-id` 等），缺失时每请求生成 UUID，否则上游返回 400。
 - 客户端中断不算供应商故障，不得冷却供应商；上游在首字节后截断则按 transient 冷却，但不切换。瞬时故障冷却按连续次数退避 10/20/40/60 秒；因冷却导致无候选时，503 必须带 `Retry-After`（剩余秒数），客户端据此等待而不是立即重试。
+- 每个供应商可配置 `maxConcurrency`（0=不限，OpenCode Go 与 CommandCode Goat 默认 3）；并发槽从请求开始持有到响应体结束（流式到流结束），满员时按优先级跳到下一家供应商，所有候选都满才在最高优先级排队；排队请求随客户端中断取消。概览页额度卡显示 Hub 持有的实时在途并发数（`AppState.concurrency`）。普通限流 429 在切换前先退避重试一次（默认 1.5 秒；`Retry-After` 超过 3 秒则直接切换），额度类 429 不重试。
 - Electron 开发/E2E 不写系统自启项（`app.isPackaged` 守卫）；E2E 使用临时 `TOKENHUB_DATA_DIR` 与 `TOKENHUB_PORT`。
 - `secrets.bin` 不能跨实例复用：safeStorage/DPAPI 与写入它的实例绑定，复制到其他数据目录会解密失败并按损坏隔离；真机联调必须在原实例内进行或重新录入 Key。
 - 启动时端口被占用不是致命错误：`Hub.init` 记录 `server.error` 照常完成，窗口必须出现；用户在设置页重新提交端口才重启监听（相同端口也允许重试）。

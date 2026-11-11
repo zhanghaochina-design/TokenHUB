@@ -41,6 +41,8 @@ export interface ProviderConfig {
   anthropicBaseUrl?: string
   quotaAdapter: QuotaAdapterId
   enabled: boolean
+  // 同时发往该上游的最大请求数；0 表示不限。槽位持有到响应体结束，满员时路由按优先级转下一家。
+  maxConcurrency?: number
   models: { cached: string[]; manual: string[]; lastSyncedAt: string | null }
   // 键为上游模型 ID；缺失表示尚未扫描，路由回退到预设默认。
   protocolSupport?: Record<string, ModelProtocolSupport>
@@ -146,6 +148,13 @@ export interface HistorySink {
   append(record: HistoryRecord): Promise<void>
 }
 
+// 当前在途请求数：从进入网关到响应体结束；limit=0 表示不限并发。
+export interface ProviderConcurrency {
+  providerId: string
+  active: number
+  limit: number
+}
+
 export interface ProviderSpeedStats {
   providerId: string
   latestTps: number | null
@@ -165,6 +174,7 @@ export interface AppState {
   settings: Settings
   providers: Array<ProviderConfig & { hasKey: boolean }>
   runtime: ProviderRuntime[]
+  concurrency: ProviderConcurrency[]
   catalog: MergedModel[]
   aliases: ModelAlias[]
   // error 只在启动监听失败时非空：界面据此提示“服务未启动”并引导改端口。

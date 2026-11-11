@@ -38,16 +38,34 @@ export interface TapHooks {
   onError?(error: unknown): void
 }
 
+interface AnthropicUsage {
+  input_tokens?: number
+  output_tokens?: number
+  cache_read_input_tokens?: number
+  cache_creation_input_tokens?: number
+}
+
 interface AnthropicStreamEvent {
   type?: string
-  message?: { usage?: { input_tokens?: number; output_tokens?: number } }
-  usage?: { output_tokens?: number }
+  message?: { usage?: AnthropicUsage }
+  usage?: AnthropicUsage
   error?: { message?: string }
 }
 
 /**
+ * Anthropic 的 input_tokens 只算未命中缓存的输入，总输入量要再加上两级缓存读写；
+ * 上游可能把输入量放在 message_start，也可能只在最终 message_delta 里给（OpenCode Go 属于后者）。
+ */
+export function anthropicInputTokens(usage: AnthropicUsage | undefined): number | null {
+  if (!usage) return null
+  const parts = [usage.input_tokens, usage.cache_read_input_tokens, usage.cache_creation_input_tokens]
+  if (parts.every((value) => value == null)) return null
+  return parts.reduce<number>((sum, value) => sum + (value ?? 0), 0)
+}
+
+/**
  * 透传 Anthropic SSE 时旁路读取 usage 与 error 帧，客户端数据流不受影响。
- * usage 口径与 translateOpenAIStreamToAnthropic 一致：message_start 给输入量，message_delta 给最终输出量。
+ * 输入量取 message_start 与 message_delta 中最新出现的一份（两处都给时以 message_delta 为准），输出量取 message_delta 的最终值。
  */
 export function tapAnthropicSSEUsage(stream: ReadableStream<Uint8Array>, hooks: TapHooks): ReadableStream<Uint8Array> {
   const [forTap, forClient] = stream.tee()
@@ -67,10 +85,11 @@ export function tapAnthropicSSEUsage(stream: ReadableStream<Uint8Array>, hooks: 
           throw new Error(parsed.error?.message ?? 'upstream stream error')
         }
         if (parsed.type === 'message_start') {
-          promptTokens = parsed.message?.usage?.input_tokens ?? promptTokens
+          promptTokens = anthropicInputTokens(parsed.message?.usage) ?? promptTokens
           completionTokens = parsed.message?.usage?.output_tokens ?? completionTokens
           hooks.onUsage?.({ prompt: promptTokens, completion: completionTokens })
         } else if (parsed.type === 'message_delta') {
+          promptTokens = anthropicInputTokens(parsed.usage) ?? promptTokens
           completionTokens = parsed.usage?.output_tokens ?? completionTokens
           hooks.onUsage?.({ prompt: promptTokens, completion: completionTokens })
         } else if (parsed.type === 'message_stop') {

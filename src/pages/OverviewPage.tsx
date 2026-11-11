@@ -131,9 +131,25 @@ function ProviderQuota({ provider, runtime, now }: { provider: ProviderWithKey; 
   return <p className="mt-3 text-xs text-muted">未配置额度查询；额度耗尽或限流后按错误码进入冷却。</p>
 }
 
+function ConcurrencyBadge({ active, limit }: { active: number; limit: number }) {
+  const full = limit > 0 && active >= limit
+  const text = limit > 0 ? `并发 ${active} / ${limit}` : `并发 ${active}`
+  return (
+    <span
+      title={limit > 0 ? `当前 ${active} 个请求在途，上限 ${limit}，满员后新请求转下一优先级` : `当前 ${active} 个请求在途，未限制并发`}
+      className={`inline-flex shrink-0 items-center rounded-md border px-1.5 py-0.5 text-[11px] font-medium tabular-nums ${
+        full ? 'border-amber-300 bg-amber-50 text-amber-800' : 'border-line bg-neutral-100 text-neutral-600'
+      }`}
+    >
+      {text}
+    </span>
+  )
+}
+
 function ProviderCard({
   provider,
   runtime,
+  concurrency,
   speed,
   index,
   now,
@@ -142,6 +158,7 @@ function ProviderCard({
 }: {
   provider: ProviderWithKey
   runtime: ProviderRuntime | undefined
+  concurrency: { active: number; limit: number } | undefined
   speed: ProviderSpeedStats | undefined
   index: number
   now: number
@@ -171,6 +188,7 @@ function ProviderCard({
                 已禁用
               </span>
             )}
+            {concurrency && <ConcurrencyBadge active={concurrency.active} limit={concurrency.limit} />}
           </div>
           <p className="mt-1 text-xs">
             <span className={`font-medium ${TEXT_TONE[status.tone]}`}>{status.label}</span>
@@ -276,6 +294,11 @@ export function OverviewPage({ state, onOpenProviders, onOpenSettings }: Overvie
   const speedByProvider = useMemo(
     () => new Map(speedStats.map((item) => [item.providerId, item])),
     [speedStats]
+  )
+
+  const concurrencyByProvider = useMemo(
+    () => new Map(state.concurrency.map((item) => [item.providerId, item])),
+    [state.concurrency]
   )
 
   const stats = state.stats
@@ -443,6 +466,7 @@ export function OverviewPage({ state, onOpenProviders, onOpenSettings }: Overvie
                 key={provider.id}
                 provider={provider}
                 runtime={runtimeById.get(provider.id)}
+                concurrency={concurrencyByProvider.get(provider.id)}
                 speed={speedByProvider.get(provider.id)}
                 index={index}
                 now={now}

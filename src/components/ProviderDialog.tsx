@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
 import { Loader2, PlugZap, X } from 'lucide-react'
-import { PROVIDER_PRESETS, defaultAnthropicBaseUrl } from '../../core/providers/presets'
+import { PROVIDER_PRESETS, defaultAnthropicBaseUrl, defaultMaxConcurrency } from '../../core/providers/presets'
 import type { ProviderInput, ProviderPatch, TestResult } from '../../core/ipc-types'
 import type { Preset, ProviderConfig, QuotaAdapterId } from '../../core/types'
 import { describeQuota, errorMessage, quotaHours, splitModels } from '../lib/format'
@@ -23,11 +23,12 @@ interface FormState {
   quotaAdapter: QuotaAdapterId
   lowBalance: string
   cooldownHours: string
+  maxConcurrency: string
   injectStreamUsage: boolean
   manualModels: string
 }
 
-type FieldErrors = Partial<Record<'name' | 'baseUrl' | 'anthropicBaseUrl' | 'apiKey' | 'lowBalance' | 'cooldown', string>>
+type FieldErrors = Partial<Record<'name' | 'baseUrl' | 'anthropicBaseUrl' | 'apiKey' | 'lowBalance' | 'cooldown' | 'maxConcurrency', string>>
 
 const QUOTA_ADAPTERS: Array<{ value: QuotaAdapterId; label: string }> = [
   { value: 'none', label: '不查询额度' },
@@ -54,6 +55,7 @@ function initialForm(provider: ProviderWithKey | null): FormState {
       quotaAdapter: 'none',
       lowBalance: '0.5',
       cooldownHours: '5',
+      maxConcurrency: '0',
       injectStreamUsage: true,
       manualModels: ''
     }
@@ -67,6 +69,7 @@ function initialForm(provider: ProviderWithKey | null): FormState {
     quotaAdapter: provider.quotaAdapter,
     lowBalance: String(provider.quota.lowBalanceThreshold),
     cooldownHours: quotaHours(provider.quota.quotaCooldownMs),
+    maxConcurrency: String(provider.maxConcurrency ?? 0),
     // 自动关闭后必须能在这里重新打开，否则只能手改 config.json。
     injectStreamUsage: provider.quota.injectStreamUsage,
     manualModels: provider.models.manual.join(', ')
@@ -94,6 +97,11 @@ function parseNonNegative(raw: string): number | null {
   return Number.isFinite(value) && value >= 0 ? value : null
 }
 
+function parseMaxConcurrency(raw: string): number | null {
+  const value = parseNonNegative(raw)
+  return value !== null && Number.isInteger(value) && value <= 64 ? value : null
+}
+
 function buildInput(form: FormState): ProviderInput {
   const lowBalance = parseNonNegative(form.lowBalance) ?? 0
   const cooldownHours = parseNonNegative(form.cooldownHours) ?? 0
@@ -109,6 +117,7 @@ function buildInput(form: FormState): ProviderInput {
       quotaCooldownMs: Math.round(cooldownHours * 3_600_000),
       injectStreamUsage: form.injectStreamUsage
     },
+    maxConcurrency: parseMaxConcurrency(form.maxConcurrency) ?? 0,
     manualModels: splitModels(form.manualModels)
   }
 }
@@ -122,6 +131,7 @@ export function ProviderDialog({ provider, onClose, onError }: ProviderDialogPro
   const apiKeyRef = useRef<HTMLInputElement>(null)
   const lowBalanceRef = useRef<HTMLInputElement>(null)
   const cooldownRef = useRef<HTMLInputElement>(null)
+  const maxConcurrencyRef = useRef<HTMLInputElement>(null)
   const closeRef = useRef(onClose)
   closeRef.current = onClose
 
@@ -203,7 +213,8 @@ export function ProviderDialog({ provider, onClose, onError }: ProviderDialogPro
         name,
         baseUrl: found ? found.baseUrl : '',
         anthropicBaseUrl: '',
-        quotaAdapter: found ? found.quotaAdapter : 'none'
+        quotaAdapter: found ? found.quotaAdapter : 'none',
+        maxConcurrency: String(defaultMaxConcurrency(preset))
       }
     })
     clearError('baseUrl')
@@ -222,6 +233,7 @@ export function ProviderDialog({ provider, onClose, onError }: ProviderDialogPro
     if (!editing && !form.apiKey.trim()) next.apiKey = '新建供应商时必须填写 API Key'
     if (parseNonNegative(form.lowBalance) === null) next.lowBalance = '请输入不小于 0 的数字'
     if (parseNonNegative(form.cooldownHours) === null) next.cooldown = '请输入不小于 0 的小时数'
+    if (parseMaxConcurrency(form.maxConcurrency) === null) next.maxConcurrency = '请输入 0–64 的整数'
     return next
   }
 
@@ -232,6 +244,7 @@ export function ProviderDialog({ provider, onClose, onError }: ProviderDialogPro
     else if (nextErrors.apiKey) apiKeyRef.current?.focus()
     else if (nextErrors.lowBalance) lowBalanceRef.current?.focus()
     else if (nextErrors.cooldown) cooldownRef.current?.focus()
+    else if (nextErrors.maxConcurrency) maxConcurrencyRef.current?.focus()
   }
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -254,6 +267,7 @@ export function ProviderDialog({ provider, onClose, onError }: ProviderDialogPro
         anthropicBaseUrl: input.anthropicBaseUrl ?? '',
         quotaAdapter: input.quotaAdapter,
         quota: input.quota,
+        maxConcurrency: input.maxConcurrency,
         manualModels: input.manualModels
       }
       // 留空表示沿用已保存的 Key，绝不把空串写回。
@@ -530,6 +544,33 @@ export function ProviderDialog({ provider, onClose, onError }: ProviderDialogPro
                       </p>
                     )}
                   </div>
+                </div>
+
+                <div>
+                  <label htmlFor={`${titleId}-max-concurrency`} className={LABEL_CLASS}>
+                    最大并发
+                  </label>
+                  <input
+                    id={`${titleId}-max-concurrency`}
+                    ref={maxConcurrencyRef}
+                    type="number"
+                    min="0"
+                    max="64"
+                    step="1"
+                    value={form.maxConcurrency}
+                    onChange={(event) => updateField('maxConcurrency', event.target.value, 'maxConcurrency')}
+                    aria-invalid={errors.maxConcurrency ? true : undefined}
+                    aria-describedby={`${titleId}-max-concurrency-hint${errors.maxConcurrency ? ` ${titleId}-max-concurrency-error` : ''}`}
+                    className={`${INPUT_CLASS} ${errors.maxConcurrency ? INPUT_ERROR_CLASS : ''}`}
+                  />
+                  <p id={`${titleId}-max-concurrency-hint`} className={HINT_CLASS}>
+                    同时发往该上游的最大请求数，0 表示不限制。达到上限后新请求按优先级转下一家。OpenCode Go / CommandCode Goat 默认 3，避免突发请求触发 429。
+                  </p>
+                  {errors.maxConcurrency && (
+                    <p id={`${titleId}-max-concurrency-error`} className={ERROR_CLASS}>
+                      {errors.maxConcurrency}
+                    </p>
+                  )}
                 </div>
 
                 <div className="flex items-start justify-between gap-4 rounded-md bg-surface px-3 py-2.5 ring-1 ring-inset ring-line">

@@ -1,5 +1,5 @@
 import { expect, test, _electron as electron, type ElectronApplication } from '@playwright/test'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -29,12 +29,19 @@ test('adds a provider from preset', async () => {
     await win.getByRole('button', { name: '添加供应商' }).click()
     await win.getByLabel('预设').selectOption('opencode-go')
     await win.getByLabel('API Key').fill('sk-test')
+    const concurrency = win.getByLabel('最大并发')
+    await expect(concurrency).toHaveValue('3')
+    await concurrency.fill('2')
     // 等焦点过渡结束再留档（密码框只显示掩码），供人工核对布局与对比度。
     await win.waitForTimeout(200)
     await win.screenshot({ path: 'out/provider-dialog.png' })
     await win.getByRole('button', { name: '保存' }).click()
 
     await expect(win.getByRole('list', { name: '供应商列表' }).getByText('OpenCode Go')).toBeVisible()
+    await expect.poll(() => {
+      const raw = readFileSync(join(dataDir, 'config.json'), 'utf8')
+      return (JSON.parse(raw) as { providers: Array<{ maxConcurrency?: number }> }).providers[0]?.maxConcurrency
+    }).toBe(2)
     // 渲染层永远不应回显明文 Key。
     await expect(win.getByText('sk-test')).toHaveCount(0)
 

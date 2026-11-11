@@ -4,17 +4,25 @@ import type { Context } from 'hono'
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import type { AppConfig, ErrorKind, HistorySink, MergedModel, Protocol, UpstreamFailure } from '../types'
 import type { RuntimeStore } from '../router/runtime'
-import { resolveCandidates, executeWithFailover, type AttemptResult, type Candidate } from '../router/router'
+import {
+  resolveCandidates,
+  executeWithFailover,
+  type AttemptResult,
+  type Candidate,
+  type FailoverOptions,
+  type FailoverResult
+} from '../router/router'
 import { anthropicError, anthropicErrorType, errorForProtocol, openAIError, protocolError, type ErrorProtocol } from './errors'
 import { providedKey, safeEqual } from './auth'
 import { forwardAnthropic, forwardOpenAI, type ForwardOutcome } from './forward'
-import { protocolSupported, upstreamExtraHeaders, upstreamProtocol } from '../providers/presets'
+import { protocolSupported, providerConcurrencyLimit, upstreamExtraHeaders, upstreamProtocol } from '../providers/presets'
+import { ProviderGate } from './gate'
 import { APP_NAME, MAX_BODY_BYTES } from '../appInfo'
 import { anthropicToOpenAI, countTokens, openAIToAnthropicResponse } from '../protocol/anthropic'
 import { translateOpenAIStreamToAnthropic } from '../protocol/anthropicStream'
 import type { AnthropicRequest } from '../protocol/anthropicTypes'
 import { anthropicToOpenAIResponse, openAIToAnthropicRequest, translateAnthropicStreamToOpenAI } from '../protocol/openai'
-import { tapAnthropicSSEUsage, tapSSEUsage } from '../protocol/sse'
+import { anthropicInputTokens, tapAnthropicSSEUsage, tapSSEUsage } from '../protocol/sse'
 
 export interface AppDeps {
   getConfig(): AppConfig
@@ -30,7 +38,11 @@ export interface AppDeps {
   onUnknownModel?(): void
   onQuotaFailure?(providerId: string): void
   onDisableStreamUsage?(providerId: string): void
+  // Hub 持有同一份闸，端口切换后并发计数不丢；测试可省略，createApp 自建。
+  gate?: ProviderGate
   now?: () => Date
+  // 429 短退避时长；默认 1.5s。测试传 0 立即重试。
+  rateLimitRetryMs?: number
   fetchFn?: Parameters<typeof forwardOpenAI>[0]['fetchFn']
 }
 
@@ -54,7 +66,8 @@ interface HistoryDraft {
   failoverFrom: string[]
 }
 
-type ForwardedResponse = Extract<ForwardOutcome, { ok: true }> & { protocol: Protocol }
+// release 必须在响应体结束后调用：流式在 onDone，非流式在 JSON 解析完。
+type ForwardedResponse = Extract<ForwardOutcome, { ok: true }> & { protocol: Protocol; release: () => void }
 
 // 首字节前只在这些状态（及全部 5xx）上换入口重试一次；鉴权/额度问题两端共用同一 Key，重试没有意义。
 const PROTOCOL_FALLBACK_STATUSES = new Set([400, 404, 405, 422])
@@ -67,6 +80,7 @@ function clientAborted(): UpstreamFailure {
 export function createApp(deps: AppDeps): Hono {
   const app = new Hono()
   const now = deps.now ?? (() => new Date())
+  const gate = deps.gate ?? new ProviderGate()
 
   // 上游（如 OpenCode Go）按会话 ID 路由并复用提示缓存：优先透传客户端原生会话头，缺失时每请求生成 UUID。
   const sessionIdOf = (c: Context): string =>
@@ -150,12 +164,14 @@ export function createApp(deps: AppDeps): Hono {
   }
 
   // 客户端中断不是供应商故障：OpenAI 与 Anthropic 路由共用同一套转发/中断判定。
+  // waitForSlot=false 时满员立即返回 saturated，让路由层转向下一个供应商。
   const runAttempt = async (
     c: Context,
     candidate: Candidate,
     bodies: { anthropic: AnthropicRequest; openai: Record<string, unknown> },
     sessionId: string,
-    clientProtocol: Protocol
+    clientProtocol: Protocol,
+    waitForSlot: boolean
   ): Promise<AttemptResult<ForwardedResponse>> => {
     if (c.req.raw.signal.aborted) return { ok: false, failure: clientAborted() }
     const apiKey = deps.getProviderKey(candidate.provider.id)
@@ -186,30 +202,68 @@ export function createApp(deps: AppDeps): Hono {
           onDisableStreamUsage: deps.onDisableStreamUsage
         })
 
-    let protocol = upstreamProtocol(candidate.provider.preset, candidate.upstreamModel, clientProtocol, support)
-    let forwarded = await forward(protocol)
-    // 仅当首选形状与客户端一致、且另一形状没有被明确判死时，才在首字节前换入口重试。
-    if (
-      !forwarded.ok &&
-      !c.req.raw.signal.aborted &&
-      protocol === clientProtocol &&
-      forwarded.failure.status !== null &&
-      (forwarded.failure.status >= 500 || PROTOCOL_FALLBACK_STATUSES.has(forwarded.failure.status))
-    ) {
-      const alternate: Protocol = protocol === 'anthropic' ? 'openai' : 'anthropic'
-      if (protocolSupported(candidate.provider.preset, candidate.upstreamModel, alternate, support) !== false) {
-        const retried = await forward(alternate)
-        if (retried.ok) return { ok: true as const, value: { ...retried, protocol: alternate } }
-        if (!c.req.raw.signal.aborted) {
-          protocol = alternate
-          forwarded = retried
+    const limit = providerConcurrencyLimit(candidate.provider)
+    const release = waitForSlot
+      ? await gate.acquire(candidate.provider.id, limit, c.req.raw.signal)
+      : gate.tryAcquire(candidate.provider.id, limit, c.req.raw.signal)
+    if (!release) {
+      return c.req.raw.signal.aborted
+        ? { ok: false, failure: clientAborted() }
+        : { ok: false, saturated: true }
+    }
+
+    try {
+      let protocol = upstreamProtocol(candidate.provider.preset, candidate.upstreamModel, clientProtocol, support)
+      let forwarded = await forward(protocol)
+      // 仅当首选形状与客户端一致、且另一形状没有被明确判死时，才在首字节前换入口重试。
+      if (
+        !forwarded.ok &&
+        !c.req.raw.signal.aborted &&
+        protocol === clientProtocol &&
+        forwarded.failure.status !== null &&
+        (forwarded.failure.status >= 500 || PROTOCOL_FALLBACK_STATUSES.has(forwarded.failure.status))
+      ) {
+        const alternate: Protocol = protocol === 'anthropic' ? 'openai' : 'anthropic'
+        if (protocolSupported(candidate.provider.preset, candidate.upstreamModel, alternate, support) !== false) {
+          const retried = await forward(alternate)
+          if (retried.ok) return { ok: true as const, value: { ...retried, protocol: alternate, release } }
+          if (!c.req.raw.signal.aborted) {
+            protocol = alternate
+            forwarded = retried
+          }
         }
       }
+      if (!forwarded.ok) {
+        release()
+        return c.req.raw.signal.aborted ? { ok: false, failure: clientAborted() } : { ok: false, failure: forwarded.failure }
+      }
+      return { ok: true as const, value: { ...forwarded, protocol, release } }
+    } catch (error) {
+      release()
+      throw error
     }
-    if (!forwarded.ok && c.req.raw.signal.aborted) return { ok: false, failure: clientAborted() }
-    return forwarded.ok
-      ? { ok: true as const, value: { ...forwarded, protocol } }
-      : { ok: false as const, failure: forwarded.failure }
+  }
+
+  const runFailover = async (
+    c: Context,
+    candidates: Candidate[],
+    attempt: (candidate: Candidate, waitForSlot: boolean) => Promise<AttemptResult<ForwardedResponse>>
+  ): Promise<FailoverResult<ForwardedResponse>> => {
+    const hooks: FailoverOptions = {
+      onModelMissing: deps.onModelMissing,
+      onQuotaFailure: deps.onQuotaFailure,
+      signal: c.req.raw.signal,
+      rateLimitRetryMs: deps.rateLimitRetryMs
+    }
+    const first = await executeWithFailover(candidates, (candidate) => attempt(candidate, false), deps.runtime, hooks)
+    if (first.ok || !first.saturated) return first
+    // 所有候选都处于并发上限：回到最高优先级候选排队等空位，避免直接失败。
+    return executeWithFailover(
+      candidates,
+      (candidate) => attempt(candidate, candidate === candidates[0]),
+      deps.runtime,
+      hooks
+    )
   }
 
   app.use('*', bodyLimit({
@@ -269,13 +323,10 @@ export function createApp(deps: AppDeps): Hono {
     }
 
     const sessionId = sessionIdOf(c)
-    const result = await executeWithFailover(resolution.candidates, (candidate) => runAttempt(c, candidate, {
+    const result = await runFailover(c, resolution.candidates, (candidate, waitForSlot) => runAttempt(c, candidate, {
       anthropic: openAIToAnthropicRequest(body, candidate.upstreamModel),
       openai: body
-    }, sessionId, 'openai'), deps.runtime, {
-      onModelMissing: deps.onModelMissing,
-      onQuotaFailure: deps.onQuotaFailure
-    })
+    }, sessionId, 'openai', waitForSlot))
 
     if (!result.ok) {
       const status = (result.failure.status ?? 502) as ContentfulStatusCode
@@ -287,6 +338,7 @@ export function createApp(deps: AppDeps): Hono {
     if (wantsStream) {
       const upstreamBody = result.value.response.body
       if (!upstreamBody) {
+        result.value.release()
         // executeWithFailover 已在拿到响应头时 markSuccess；200 但无 body 仍要让供应商冷却，
         // 否则它会一直被判为健康并继续接流式请求。
         deps.runtime.markFailure(result.candidate.provider, { kind: 'transient', status: null, message: 'upstream returned no body', retryAfterMs: null })
@@ -310,6 +362,8 @@ export function createApp(deps: AppDeps): Hono {
         }
       }
       const onStreamDone = (): void => {
+        // 并发槽覆盖整条流：客户端取消或上游截断也会走到这里。
+        result.value.release()
         void deps.history.append({
           ts: now().toISOString(),
           requestId,
@@ -359,6 +413,7 @@ export function createApp(deps: AppDeps): Hono {
     const response = result.value.response
     const headersAt = Date.now()
     const data = await response.json().catch(() => null)
+    result.value.release()
     if (!data) {
       const aborted = c.req.raw.signal.aborted
       // executeWithFailover 已在拿到响应头时 markSuccess；200 但 body 不可解析时需补记失败，
@@ -371,10 +426,10 @@ export function createApp(deps: AppDeps): Hono {
     }
 
     if (result.value.protocol === 'anthropic') {
-      const anthropicUsage = (data as { usage?: { input_tokens?: number; output_tokens?: number } }).usage
+      const anthropicUsage = (data as { usage?: Parameters<typeof anthropicInputTokens>[0] }).usage
       recordSuccess(
         failureContext,
-        anthropicUsage?.input_tokens ?? null,
+        anthropicInputTokens(anthropicUsage),
         anthropicUsage?.output_tokens ?? null,
         result.candidate.provider.id,
         result.candidate.upstreamModel,
@@ -430,15 +485,10 @@ export function createApp(deps: AppDeps): Hono {
     }
 
     const sessionId = sessionIdOf(c)
-    const result = await executeWithFailover(
-      resolution.candidates,
-      (candidate) => runAttempt(c, candidate, {
-        anthropic: body,
-        openai: anthropicToOpenAI(body, candidate.upstreamModel)
-      }, sessionId, 'anthropic'),
-      deps.runtime,
-      { onModelMissing: deps.onModelMissing, onQuotaFailure: deps.onQuotaFailure }
-    )
+    const result = await runFailover(c, resolution.candidates, (candidate, waitForSlot) => runAttempt(c, candidate, {
+      anthropic: body,
+      openai: anthropicToOpenAI(body, candidate.upstreamModel)
+    }, sessionId, 'anthropic', waitForSlot))
 
     if (!result.ok) {
       const status = (result.failure.status ?? 502) as ContentfulStatusCode
@@ -450,6 +500,7 @@ export function createApp(deps: AppDeps): Hono {
     if (wantsStream) {
       const upstreamBody = result.value.response.body
       if (!upstreamBody) {
+        result.value.release()
         // 与 OpenAI 分支同理：拿到响应头已 markSuccess，此处补记失败让供应商冷却。
         deps.runtime.markFailure(result.candidate.provider, { kind: 'transient', status: null, message: 'upstream returned no body', retryAfterMs: null })
         recordFailure(failureContext, 502, 'transient', result.candidate.provider.id, result.candidate.upstreamModel, result.tried.slice(0, -1))
@@ -473,6 +524,7 @@ export function createApp(deps: AppDeps): Hono {
         }
       }
       const onStreamDone = (): void => {
+        result.value.release()
         const aborted = c.req.raw.signal.aborted
         const failed = streamError !== null || aborted
         appendHistory(failureContext, {
@@ -516,6 +568,7 @@ export function createApp(deps: AppDeps): Hono {
 
     const headersAt = Date.now()
     const data = await result.value.response.json().catch(() => null)
+    result.value.release()
     if (!data) {
       const aborted = c.req.raw.signal.aborted
       // 与 OpenAI 分支同理：拿到响应头已 markSuccess，200 但 body 不可解析时补记失败让供应商冷却；
@@ -528,10 +581,10 @@ export function createApp(deps: AppDeps): Hono {
     }
 
     if (result.value.protocol === 'anthropic') {
-      const anthropicUsage = (data as { usage?: { input_tokens?: number; output_tokens?: number } }).usage
+      const anthropicUsage = (data as { usage?: Parameters<typeof anthropicInputTokens>[0] }).usage
       recordSuccess(
         failureContext,
-        anthropicUsage?.input_tokens ?? null,
+        anthropicInputTokens(anthropicUsage),
         anthropicUsage?.output_tokens ?? null,
         result.candidate.provider.id,
         result.candidate.upstreamModel,

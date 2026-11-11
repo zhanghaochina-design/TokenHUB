@@ -1213,7 +1213,7 @@ setx ANTHROPIC_MODEL "claude-sonnet-4-5"</code></pre>
               </tr>
               <tr>
                 <td>429 限流</td>
-                <td>切到下一个可用供应商；冷却按 Retry-After，缺失时 60 秒</td>
+                <td>先按 Retry-After 短暂等待并重试一次（缺省 1.5 秒；超过 3 秒直接切换），仍失败再切下一个；冷却按 Retry-After，缺失时 60 秒</td>
                 <td>通常无需操作，等冷却结束。</td>
               </tr>
               <tr>

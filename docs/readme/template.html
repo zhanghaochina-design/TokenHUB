@@ -672,7 +672,7 @@
         <figure class="shot">
           <img src="{{IMG_OVERVIEW_QUOTA}}" width="1152" height="500" decoding="async" alt="概览页的供应商额度卡片：OpenCode Go 与 CommandCode 的 5 小时 / 周 / 月套餐窗口、DeepSeek 账户余额">
           <figcaption class="caption">
-            <span>额度卡按优先级排列：OpenCode Go 与 CommandCode 显示 5 小时 / 周 / 月窗口，DeepSeek 显示余额；未配置额度适配器的供应商按错误码冷却。</span>
+            <span>额度卡按优先级排列：OpenCode Go 与 CommandCode 显示 5 小时 / 周 / 月窗口，DeepSeek 显示余额；每张卡显示当前在途并发数，满员时高亮；未配置额度适配器的供应商按错误码冷却。</span>
             <span class="pill">演示数据</span>
           </figcaption>
         </figure>
@@ -976,7 +976,7 @@ ANTHROPIC_MODEL=claude-sonnet-4-5</code></pre>
           <tbody>
             <tr><td><strong>首选供应商可用</strong></td><td>直接转发，返回上游响应</td><td><span class="badge ok">正常</span></td></tr>
             <tr><td><strong>402 额度耗尽 / 429 被判为额度问题</strong></td><td>切到下一个可用供应商</td><td><span class="badge warn">额度冷却</span> 默认 5 小时，可配置</td></tr>
-            <tr><td><strong>429 限流</strong></td><td>切到下一个可用供应商</td><td><span class="badge warn">限流冷却</span> 按 Retry-After，缺失时 60 秒</td></tr>
+            <tr><td><strong>429 限流</strong></td><td>先按 Retry-After 短暂等待并重试一次（缺省 1.5 秒；超过 3 秒直接切换），仍失败再切下一个</td><td><span class="badge warn">限流冷却</span> 按 Retry-After，缺失时 60 秒</td></tr>
             <tr><td><strong>401 / 403 鉴权失败</strong></td><td>跳过该供应商，继续尝试其他候选</td><td><span class="badge danger">鉴权失败</span> 等待恢复或换 Key</td></tr>
             <tr><td><strong>5xx / 网络错误 / 超时</strong></td><td>先按需换协议入口，再切到下一个可用供应商</td><td><span class="badge warn">瞬态冷却</span> 10 秒起，连续失败 20 / 40 / 60 秒</td></tr>
             <tr><td><strong>404 模型不存在</strong></td><td>先尝试另一协议入口，再切下一个有该模型的供应商，并触发一次目录刷新</td><td><span class="badge neutral">不冷却</span> 刷新有 60 秒限流</td></tr>
@@ -1137,7 +1137,7 @@ ANTHROPIC_MODEL=claude-sonnet-4-5</code></pre>
         </details>
         <details>
           <summary>可以多个客户端同时用吗？</summary>
-          <p>可以。TokenHUB 在本机提供一个 HTTP 服务，多个客户端可以同时连接；并发上限取决于上游供应商，TokenHUB 不做额外的排队或限速。</p>
+          <p>可以。TokenHUB 在本机提供一个 HTTP 服务，多个客户端可以同时连接；每个供应商可设置最大并发（OpenCode Go / CommandCode Goat 默认 3，0 表示不限）。达到上限后，新请求按优先级自动转到下一家供应商；所有候选都满时才在本地排队，客户端断开时自动取消。概览页额度卡会显示当前在途并发数。</p>
         </details>
         <details>
           <summary>换电脑怎么迁移？</summary>

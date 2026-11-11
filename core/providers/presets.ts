@@ -14,6 +14,27 @@ export const PROVIDER_PRESETS: PresetDefinition[] = [
   { preset: 'deepseek', name: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1', quotaAdapter: 'deepseek-balance' }
 ]
 
+// OpenCode Go 与 CommandCode Goat 对突发请求会直接返回 429；默认限 3 路，给上游留出排队空间。
+const PRESET_MAX_CONCURRENCY: Record<Preset, number> = {
+  'opencode-go': 3,
+  commandcode: 3,
+  deepseek: 0,
+  custom: 0
+}
+
+export function defaultMaxConcurrency(preset: Preset): number {
+  return PRESET_MAX_CONCURRENCY[preset] ?? 0
+}
+
+/** 有效并发上限；0 表示不限。非法值回退到预设默认，避免手改配置把网关卡死。 */
+export function providerConcurrencyLimit(provider: Pick<ProviderConfig, 'preset' | 'maxConcurrency'>): number {
+  const value = provider.maxConcurrency
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    return defaultMaxConcurrency(provider.preset)
+  }
+  return Math.floor(value)
+}
+
 type SupportState = Pick<ModelProtocolSupport, 'anthropic' | 'openai'>
 
 // 没有扫描数据时的预设默认：CommandCode 按模型只提供一个形状；OpenCode Go 与 DeepSeek 两端都可用；
@@ -95,6 +116,7 @@ export function createProviderFromPreset(preset: Preset, id: string = crypto.ran
     baseUrl: found?.baseUrl ?? '',
     quotaAdapter: found?.quotaAdapter ?? 'none',
     enabled: true,
+    maxConcurrency: defaultMaxConcurrency(preset),
     models: { cached: [], manual: [], lastSyncedAt: null },
     quota: { lowBalanceThreshold: 0.5, quotaCooldownMs: 5 * 60 * 60 * 1000, injectStreamUsage: true }
   }

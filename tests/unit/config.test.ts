@@ -75,6 +75,21 @@ describe('config store', () => {
     expect(cfg.providers[1].anthropicBaseUrl).toBeUndefined()
   })
 
+  it('defaults maxConcurrency by preset and rejects out-of-range values', () => {
+    const cfg = normalizeConfig({
+      providers: [
+        { id: 'o', name: 'O', preset: 'opencode-go', baseUrl: 'https://o.example/v1' },
+        { id: 'cc', name: 'CC', preset: 'commandcode', baseUrl: 'https://cc.example/v1' },
+        { id: 'c', name: 'C', preset: 'custom', baseUrl: 'https://c.example/v1', maxConcurrency: 5 },
+        { id: 'x', name: 'X', preset: 'custom', baseUrl: 'https://x.example/v1', maxConcurrency: -2 }
+      ]
+    })
+    expect(cfg.providers[0].maxConcurrency).toBe(3)
+    expect(cfg.providers[1].maxConcurrency).toBe(3)
+    expect(cfg.providers[2].maxConcurrency).toBe(5)
+    expect(cfg.providers[3].maxConcurrency).toBe(0)
+  })
+
   it('round-trips provider order', async () => {
     const dir = await tempDir()
     const cfg = defaultConfig()

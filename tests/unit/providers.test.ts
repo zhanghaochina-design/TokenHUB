@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { APP_VERSION } from '../../core/appInfo'
-import { PROVIDER_PRESETS, anthropicBaseUrlFor, createProviderFromPreset, defaultAnthropicBaseUrl, protocolSupported, upstreamExtraHeaders, upstreamProtocol } from '../../core/providers/presets'
+import { PROVIDER_PRESETS, anthropicBaseUrlFor, createProviderFromPreset, defaultAnthropicBaseUrl, defaultMaxConcurrency, providerConcurrencyLimit, protocolSupported, upstreamExtraHeaders, upstreamProtocol } from '../../core/providers/presets'
 import { buildCatalog, parseRequestedModel, providerSupports } from '../../core/providers/catalog'
 import { discoverModels } from '../../core/providers/discover'
 
@@ -14,7 +14,24 @@ describe('presets', () => {
     const provider = createProviderFromPreset('opencode-go', 'p1')
     expect(provider.quotaAdapter).toBe('opencode-go')
     expect(provider.id).toBe('p1')
+    expect(provider.maxConcurrency).toBe(3)
     expect(createProviderFromPreset('commandcode', 'p2').quotaAdapter).toBe('commandcode-usage')
+    expect(createProviderFromPreset('commandcode', 'p2').maxConcurrency).toBe(3)
+  })
+})
+
+describe('provider concurrency', () => {
+  it('defaults OpenCode Go to 3 and treats invalid values as the preset default', () => {
+    expect(defaultMaxConcurrency('opencode-go')).toBe(3)
+    expect(defaultMaxConcurrency('custom')).toBe(0)
+    const provider = createProviderFromPreset('opencode-go', 'p1')
+    expect(providerConcurrencyLimit(provider)).toBe(3)
+    provider.maxConcurrency = 7
+    expect(providerConcurrencyLimit(provider)).toBe(7)
+    provider.maxConcurrency = -1
+    expect(providerConcurrencyLimit(provider)).toBe(3)
+    provider.maxConcurrency = 0
+    expect(providerConcurrencyLimit(provider)).toBe(0)
   })
 })
 
