@@ -286,7 +286,18 @@ try {
   await providerDialog.waitFor()
   await win.waitForTimeout(250)
   await resize(1440, 1000)
+  // 屏幕工作区会把窗口内容高度钳到 967px，对话框内部滚动将截掉下半部分字段；截图期间临时解除滚动约束。
+  const dialogStyle = await win.addStyleTag({
+    content:
+      'html,body{overflow:visible!important;height:auto!important}' +
+      'div:has(> [role="dialog"]){position:static!important;overflow:visible!important;height:auto!important;padding:0!important;display:block!important}' +
+      '[role="dialog"]{max-height:none!important}' +
+      '[role="dialog"]>div{overflow:visible!important;flex:none!important}'
+  })
+  await win.waitForTimeout(250)
   await providerDialog.screenshot({ path: join(SHOTS, 'provider-dialog.png') })
+  await dialogStyle.evaluate((el) => el.remove())
+  await win.waitForTimeout(200)
   await win.getByRole('button', { name: '关闭对话框' }).click()
   await win.waitForTimeout(200)
 

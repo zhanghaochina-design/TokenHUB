@@ -382,7 +382,7 @@
       <a href="#security">安全</a>
       <a href="#faq">FAQ</a>
     </nav>
-    <span class="version">v0.1.2</span>
+    <span class="version">v0.1.3</span>
   </div>
 </header>
 
@@ -670,15 +670,15 @@
 
       <div class="figure-stack">
         <figure class="shot">
-          <img src="{{IMG_OVERVIEW_QUOTA}}" width="1152" height="500" decoding="async" alt="概览页的供应商额度卡片：OpenCode Go 与 CommandCode 的 5 小时 / 周 / 月套餐窗口、DeepSeek 账户余额">
+          <img src="{{IMG_OVERVIEW_QUOTA}}" width="1152" height="696" decoding="async" alt="概览页的供应商额度卡片：OpenCode Go 与 CommandCode 的 5 小时 / 周 / 月套餐窗口、DeepSeek 账户余额、Token 速度仪表与在途并发数">
           <figcaption class="caption">
-            <span>额度卡按优先级排列：OpenCode Go 与 CommandCode 显示 5 小时 / 周 / 月窗口，DeepSeek 显示余额；每张卡显示当前在途并发数，满员时高亮；未配置额度适配器的供应商按错误码冷却。</span>
+            <span>额度卡按优先级排列：OpenCode Go 与 CommandCode 显示 5 小时 / 周 / 月窗口，DeepSeek 显示余额；每张卡带 Token 速度仪表与在途并发数，并发满员时高亮；未配置额度适配器的供应商按错误码冷却。</span>
             <span class="pill">演示数据</span>
           </figcaption>
         </figure>
 
         <figure class="shot">
-          <img src="{{IMG_HISTORY}}" width="1152" height="918" decoding="async" alt="最近请求表格，其中一条记录已展开，显示请求 ID、上游模型、首字节耗时、切换来源与请求方式">
+          <img src="{{IMG_HISTORY}}" width="1152" height="919" decoding="async" alt="最近请求表格，其中一条记录已展开，显示请求 ID、上游模型、首字节耗时、切换来源与请求方式">
           <figcaption class="caption">
             <span>最近请求：展开任一条可查看请求 ID、上游模型、首字节耗时、错误分类、切换来源，以及流式 / 非流式。</span>
             <span class="pill">演示数据</span>
@@ -721,7 +721,7 @@
 
       <div class="figure-split">
         <figure class="shot">
-          <img src="{{IMG_PROVIDER_DIALOG}}" width="640" height="919" decoding="async" alt="编辑供应商对话框：预设、名称、Base URL、API Key、额度适配器、低余额阈值、冷却小时数、流式 usage 与手动模型">
+          <img src="{{IMG_PROVIDER_DIALOG}}" width="640" height="1179" decoding="async" alt="编辑供应商对话框：预设、名称、Base URL、API Key、额度适配器、低余额阈值、冷却小时数、最大并发、流式 usage 与手动模型">
           <figcaption class="caption"><span>编辑供应商：留空 API Key 表示沿用已保存的密钥。</span></figcaption>
         </figure>
         <ul class="bullet-list">
@@ -735,6 +735,10 @@
           </li>
           <li>
             <span class="dot" aria-hidden="true"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg></span>
+            <div><h3>最大并发</h3><p>同时发往该供应商的请求上限；OpenCode Go / CommandCode Goat 默认 3，0 表示不限。满员时新请求按优先级转下一家。</p></div>
+          </li>
+          <li>
+            <span class="dot" aria-hidden="true"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg></span>
             <div><h3>冷却与恢复</h3><p>额度、限流、瞬态失败会进入冷却；概览卡的「恢复」按钮可手动清零。</p></div>
           </li>
           <li>
@@ -742,6 +746,11 @@
             <div><h3>排序与删除</h3><p>拖动即保存优先级；删除供应商会同时移除它的模型与统一模型目标。</p></div>
           </li>
         </ul>
+      </div>
+
+      <div class="callout">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 8h.01M11 12h1v4h1"></path></svg>
+        <div><strong>0.1.3 新增「按供应商并发上限」：</strong>每个供应商可设同时发往上游的最大请求数（OpenCode Go / CommandCode Goat 默认 3，0 表示不限），槽位持有到响应体结束。满员时新请求按优先级自动转下一家；所有候选都满才在本地排队，客户端断开即取消。概览额度卡实时显示在途并发数。</div>
       </div>
     </div>
   </section>
@@ -1167,7 +1176,7 @@ ANTHROPIC_MODEL=claude-sonnet-4-5</code></pre>
         <div class="limit"><span aria-hidden="true">•</span><div><b>只覆盖 Chat 与 Messages。</b>不代理 Embeddings、Rerank、Realtime、Batch 等端点。</div></div>
         <div class="limit"><span aria-hidden="true">•</span><div><b>单机单用户。</b>没有团队配额、审计日志或多租户隔离。</div></div>
         <div class="limit"><span aria-hidden="true">•</span><div><b>协议能力依赖扫描。</b>未扫描的组合按预设默认处理，必要时需手动验证。</div></div>
-        <div class="limit"><span aria-hidden="true">•</span><div><b>0.1.2 版本。</b>配置结构与界面仍可能调整；当前只发布 Windows 安装包。</div></div>
+        <div class="limit"><span aria-hidden="true">•</span><div><b>0.1.3 版本。</b>配置结构与界面仍可能调整；当前只发布 Windows 安装包。</div></div>
         <div class="limit"><span aria-hidden="true">•</span><div><b>不做内容处理。</b>不缓存、不改写、不审核提示词与回复。</div></div>
       </div>
     </div>
@@ -1189,7 +1198,7 @@ ANTHROPIC_MODEL=claude-sonnet-4-5</code></pre>
       TokenHUB
     </div>
     <div class="footer-meta">
-      v0.1.2 · 文档更新于 2026-11-06 · 截图来自演示数据（演示端口 18799）<br>
+      v0.1.3 · 文档更新于 2026-11-11 · 截图来自演示数据（演示端口 18799）<br>
       本地优先 · 仅监听 127.0.0.1 · Key 由 Windows DPAPI 加密保存
     </div>
   </div>
