@@ -18,8 +18,8 @@ const HEIGHT = 168
 const BASELINE_Y = 128
 const CHART_HEIGHT = 96
 const BAR_WIDTH = 44
-const INPUT_FILL = '#93c5fd'
-const OUTPUT_FILL = '#2563eb'
+const INPUT_FILL = '#a7f3d0'
+const OUTPUT_FILL = '#10b981'
 
 function centerX(index: number): number {
   return 48 + index * 82
@@ -35,25 +35,25 @@ export function UsageBarChart({ windows, className = '' }: UsageBarChartProps) {
 
   return (
     <div className={className}>
-      <div className="mb-1 flex items-center gap-3 text-[11px] text-muted">
+      <div className="mb-1 flex items-center gap-3 text-xs text-muted">
         <span className="inline-flex items-center gap-1">
-          <span className="size-2.5 rounded-sm" style={{ background: INPUT_FILL }} aria-hidden="true" />
+          <span className="size-2 rounded-sm" style={{ background: INPUT_FILL }} aria-hidden="true" />
           输入
         </span>
         <span className="inline-flex items-center gap-1">
-          <span className="size-2.5 rounded-sm" style={{ background: OUTPUT_FILL }} aria-hidden="true" />
+          <span className="size-2 rounded-sm" style={{ background: OUTPUT_FILL }} aria-hidden="true" />
           输出
         </span>
       </div>
       <svg viewBox={`0 0 ${WIDTH} ${HEIGHT}`} className="block w-full" role="img" aria-label={`周期累计 token：${summary}`}>
         <defs>
           <linearGradient id={`${uid}-output`} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#3b82f6" />
-            <stop offset="100%" stopColor="#2563eb" />
+            <stop offset="0%" stopColor="#34d399" />
+            <stop offset="100%" stopColor="#10b981" />
           </linearGradient>
         </defs>
 
-        <line x1="16" y1={BASELINE_Y} x2={WIDTH - 16} y2={BASELINE_Y} stroke="#e5e5e0" strokeWidth="1" />
+        <line x1="16" y1={BASELINE_Y} x2={WIDTH - 16} y2={BASELINE_Y} stroke="var(--color-line)" strokeWidth="1" />
 
         {windows.map((window, index) => {
           const cx = centerX(index)
@@ -73,15 +73,15 @@ export function UsageBarChart({ windows, className = '' }: UsageBarChartProps) {
                   <rect x={x} y={outputY} width={BAR_WIDTH} height={outputH} fill={`url(#${uid}-output)`} rx="2" />
                 </>
               ) : (
-                <rect x={x} y={BASELINE_Y - 2} width={BAR_WIDTH} height="2" fill="#e5e5e0" />
+                <rect x={x} y={BASELINE_Y - 2} width={BAR_WIDTH} height="2" fill="var(--color-line)" />
               )}
-              <text x={cx} y={Math.max(outputY - 6, 14)} textAnchor="middle" fontSize="11" fontWeight="600" fill="#1f2328" className="tabular-nums">
+              <text x={cx} y={Math.max(outputY - 6, 14)} textAnchor="middle" fontSize="11" fontWeight="600" fill="var(--color-ink)" className="tabular-nums">
                 {formatTokenCount(window.totalTokens)}
               </text>
-              <text x={cx} y={148} textAnchor="middle" fontSize="11" fill="#5b626c">
+              <text x={cx} y={148} textAnchor="middle" fontSize="11" fill="var(--color-muted)">
                 {label}
               </text>
-              <text x={cx} y={162} textAnchor="middle" fontSize="9" fill="#9ca3af" className="tabular-nums">
+              <text x={cx} y={162} textAnchor="middle" fontSize="10" fill="var(--color-muted)" className="tabular-nums">
                 {formatNumber(window.requests)} 次
               </text>
             </g>

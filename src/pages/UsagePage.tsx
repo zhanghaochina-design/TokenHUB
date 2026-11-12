@@ -35,7 +35,7 @@ const WINDOW_LABELS: Record<UsageWindow['key'], string> = {
 function WindowDetail({ window, resetsAt, now }: { window: UsageWindow; resetsAt: string | null; now: number }) {
   const countdown = window.aligned ? formatCountdown(resetsAt, now) : null
   return (
-    <li className="rounded-md bg-canvas px-3 py-2">
+    <li className="rounded-md bg-canvas/60 px-3 py-2.5 ring-1 ring-inset ring-line">
       <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-1">
         <span className="text-xs font-medium text-ink">{WINDOW_LABELS[window.key]}</span>
         <span className="text-sm font-semibold tabular-nums text-ink" title={`${formatNumber(window.totalTokens)} token`}>
@@ -45,18 +45,18 @@ function WindowDetail({ window, resetsAt, now }: { window: UsageWindow; resetsAt
       <p className="mt-0.5 text-[11px] tabular-nums text-muted">
         输入 {formatTokenCount(window.promptTokens)} · 输出 {formatTokenCount(window.completionTokens)}
       </p>
-      <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px]">
-        <span className={`rounded px-1.5 py-0.5 font-medium ${window.aligned ? 'bg-accent/10 text-accent-strong' : 'bg-neutral-100 text-neutral-600'}`}>
-          {window.aligned ? '按套餐周期' : '滚动窗口'}
+      <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted">
+        <span className="rounded-md border border-line bg-neutral-100 px-1.5 py-0.5 font-medium text-neutral-600">
+          {window.aligned ? '套餐周期' : '滚动'}
         </span>
         {window.partial && (
-          <span className="rounded bg-amber-50 px-1.5 py-0.5 font-medium text-amber-800" title="历史保留天数不足以覆盖整个周期">
+          <span className="rounded-md bg-amber-50 px-1.5 py-0.5 font-medium text-amber-800 ring-1 ring-inset ring-amber-600/20" title="历史保留天数不足以覆盖整个周期">
             数据不足
           </span>
         )}
-        <span className="text-muted">自 {formatDateTime(window.start)}</span>
+        <span>自 {formatDateTime(window.start)}</span>
         {window.aligned && countdown && countdown !== '—' && (
-          <span className="text-muted">· 重置 {countdown === '已到期' ? '已到期' : `剩 ${countdown}`}</span>
+          <span>· 重置 {countdown === '已到期' ? '已到期' : `剩 ${countdown}`}</span>
         )}
       </div>
     </li>
@@ -149,7 +149,7 @@ export function UsagePage({ state }: UsagePageProps) {
       <header className="mb-6">
         <h1 className="text-xl font-semibold tracking-tight text-ink">用量统计</h1>
         <p className="mt-1 text-sm text-muted">
-          各供应商 5 小时 / 周 / 月 的累计 token（输入 + 输出）。OpenCode Go 与 CommandCode 按探针重置时间对齐套餐周期，DeepSeek 等按最近 5 小时 / 7 天 / 30 天滚动。
+          各供应商 5 小时 / 周 / 月的累计 token（输入 + 输出）。OpenCode Go 与 CommandCode 按套餐周期对齐，DeepSeek 等按最近 5 小时 / 7 天 / 30 天滚动。
         </p>
       </header>
 
@@ -159,32 +159,43 @@ export function UsagePage({ state }: UsagePageProps) {
         </div>
       )}
 
-      {state.providers.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-line bg-surface px-6 py-12 text-center">
-          <span className="mx-auto flex size-12 items-center justify-center rounded-full bg-canvas text-muted">
-            <Server className="size-5" aria-hidden="true" />
-          </span>
-          <h3 className="mt-4 text-base font-semibold text-ink">还没有供应商</h3>
-          <p className="mx-auto mt-1 max-w-md text-sm text-muted">添加供应商后，这里会按周期统计累计 token 用量。</p>
+      <section aria-labelledby="usage-heading">
+        <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+          <h2 id="usage-heading" className="text-base font-semibold text-ink">
+            供应商用量
+          </h2>
+          <p className="text-xs text-muted">
+            每 30 秒刷新 · {state.settings.retentionDays === 0 ? '历史永久保留' : `历史保留 ${state.settings.retentionDays} 天`}
+          </p>
         </div>
-      ) : loading ? (
-        <div className="flex items-center gap-2 rounded-lg border border-line bg-surface px-4 py-8 text-sm text-muted" role="status">
-          <BarChart3 className="size-4 animate-pulse text-accent" aria-hidden="true" />
-          正在统计用量…
-        </div>
-      ) : (
-        <ul aria-label="供应商用量" className="grid list-none gap-4 p-0 lg:grid-cols-2">
-          {state.providers.map((provider) => (
-            <UsageCard
-              key={provider.id}
-              provider={provider}
-              runtime={runtimeById.get(provider.id)}
-              stats={usageByProvider.get(provider.id)}
-              now={now}
-            />
-          ))}
-        </ul>
-      )}
+
+        {state.providers.length === 0 ? (
+          <div className="rounded-lg border border-dashed border-line bg-surface px-6 py-12 text-center">
+            <span className="mx-auto flex size-12 items-center justify-center rounded-full bg-canvas text-muted">
+              <Server className="size-5" aria-hidden="true" />
+            </span>
+            <h3 className="mt-4 text-base font-semibold text-ink">还没有供应商</h3>
+            <p className="mx-auto mt-1 max-w-md text-sm text-muted">添加供应商后，这里会按周期统计累计 token 用量。</p>
+          </div>
+        ) : loading ? (
+          <div className="flex items-center gap-2 rounded-lg border border-line bg-surface px-4 py-8 text-sm text-muted" role="status">
+            <BarChart3 className="size-4 animate-pulse text-accent" aria-hidden="true" />
+            正在统计用量…
+          </div>
+        ) : (
+          <ul aria-label="供应商用量" className="grid list-none gap-4 p-0 lg:grid-cols-2">
+            {state.providers.map((provider) => (
+              <UsageCard
+                key={provider.id}
+                provider={provider}
+                runtime={runtimeById.get(provider.id)}
+                stats={usageByProvider.get(provider.id)}
+                now={now}
+              />
+            ))}
+          </ul>
+        )}
+      </section>
 
       {toast && <Toast message={toast} onDismiss={() => setToast(null)} />}
     </div>
