@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
   AlertTriangle,
+  BarChart3,
   Boxes,
   LayoutDashboard,
   Loader2,
@@ -15,9 +16,11 @@ import { ModelsPage } from './pages/ModelsPage'
 import { OverviewPage } from './pages/OverviewPage'
 import { ProvidersPage } from './pages/ProvidersPage'
 import { SettingsPage } from './pages/SettingsPage'
+import { UsagePage } from './pages/UsagePage'
 
 const PAGES: Array<{ id: string; label: string; icon: LucideIcon }> = [
   { id: 'overview', label: '概览', icon: LayoutDashboard },
+  { id: 'usage', label: '用量', icon: BarChart3 },
   { id: 'providers', label: '供应商', icon: Server },
   { id: 'models', label: '模型', icon: Boxes },
   { id: 'settings', label: '设置', icon: Settings }
@@ -167,6 +170,8 @@ export default function App() {
               onOpenProviders={() => navigate('providers')}
               onOpenSettings={() => navigate('settings')}
             />
+          ) : page === 'usage' ? (
+            <UsagePage state={state} />
           ) : page === 'providers' ? (
             <ProvidersPage state={state} />
           ) : page === 'models' ? (

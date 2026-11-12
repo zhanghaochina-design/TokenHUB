@@ -43,4 +43,15 @@ describe('HistoryStore', () => {
     await store.prune(30)
     expect(await store.list('2026-09-01')).toEqual([])
   })
+
+  it('lists records across a day range inclusive of both ends', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'tokenhub-history-'))
+    const store = new HistoryStore(dir, () => new Date('2026-10-28T12:00:00Z'))
+    await store.append(record('2026-10-26T12:00:00.000Z'))
+    await store.append(record('2026-10-27T12:00:00.000Z'))
+    await store.append(record('2026-10-28T12:00:00.000Z'))
+    await store.append(record('2026-10-29T12:00:00.000Z'))
+    const rows = await store.listRange('2026-10-27', '2026-10-28')
+    expect(rows.map((r) => r.ts).sort()).toEqual(['2026-10-27T12:00:00.000Z', '2026-10-28T12:00:00.000Z'])
+  })
 })

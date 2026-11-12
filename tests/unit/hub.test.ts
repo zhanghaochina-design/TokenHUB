@@ -74,6 +74,25 @@ describe('Hub', () => {
     await hub.shutdown()
   })
 
+  it('aggregates periodic token usage from history', async () => {
+    const { hub, dir } = await boot()
+    await hub.addProvider({ preset: 'opencode-go', name: 'Go', baseUrl: 'https://opencode.ai/zen/go/v1', apiKey: 'sk-1' })
+    const id = hub.getState().providers[0].id
+    const ts = new Date()
+    const day = `${ts.getFullYear()}-${String(ts.getMonth() + 1).padStart(2, '0')}-${String(ts.getDate()).padStart(2, '0')}`
+    const rec = {
+      ts: ts.toISOString(), requestId: 'r', protocol: 'openai', model: 'm1', providerId: id, upstreamModel: 'm1',
+      stream: false, httpStatus: 200, outcome: 'ok', promptTokens: 10, completionTokens: 100, latencyMs: 10, firstByteMs: 5, errorKind: null
+    }
+    await mkdir(join(dir, 'history'), { recursive: true })
+    await writeFile(join(dir, 'history', `${day}.jsonl`), `${JSON.stringify(rec)}\n`, 'utf8')
+    const stats = await hub.getUsageStats()
+    const provider = stats.find((s) => s.providerId === id)!
+    expect(provider.windows.map((w) => w.key)).toEqual(['rolling', 'weekly', 'monthly'])
+    expect(provider.windows[0]).toMatchObject({ promptTokens: 10, completionTokens: 100, totalTokens: 110, requests: 1 })
+    await hub.shutdown()
+  })
+
   it('reorders, disables and deletes providers', async () => {
     const { hub } = await boot()
     await hub.addProvider({ preset: 'custom', name: 'A', baseUrl: 'https://a.example/v1', apiKey: 'ka' })

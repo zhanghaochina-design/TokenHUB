@@ -19,6 +19,7 @@ const api: TokenHubApi = {
   setPaused: (paused) => ipcRenderer.invoke('tokenhub:setPaused', paused),
   getHistory: (day, limit) => ipcRenderer.invoke('tokenhub:getHistory', day, limit),
   getSpeedStats: (day) => ipcRenderer.invoke('tokenhub:getSpeedStats', day),
+  getUsageStats: () => ipcRenderer.invoke('tokenhub:getUsageStats'),
   getUpdateState: () => ipcRenderer.invoke('tokenhub:getUpdateState'),
   checkForUpdates: () => ipcRenderer.invoke('tokenhub:checkForUpdates'),
   downloadUpdate: () => ipcRenderer.invoke('tokenhub:downloadUpdate'),

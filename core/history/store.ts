@@ -47,6 +47,19 @@ export class HistoryStore implements HistorySink {
     }
   }
 
+  // 读取 [fromDay, toDay] 闭区间内所有本地日文件；周期统计需要跨多天聚合。
+  async listRange(fromDay: string, toDay: string): Promise<HistoryRecord[]> {
+    const files = await readdir(this.dir).catch(() => [] as string[])
+    const rows: HistoryRecord[] = []
+    for (const file of files.sort()) {
+      if (!/^\d{4}-\d{2}-\d{2}\.jsonl$/.test(file)) continue
+      const day = file.slice(0, 10)
+      if (day < fromDay || day > toDay) continue
+      rows.push(...(await this.list(day, Number.MAX_SAFE_INTEGER)))
+    }
+    return rows
+  }
+
   async prune(retentionDays: number): Promise<void> {
     if (retentionDays <= 0) return
     const files = await readdir(this.dir).catch(() => [] as string[])

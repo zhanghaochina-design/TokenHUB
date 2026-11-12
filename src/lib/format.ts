@@ -59,6 +59,14 @@ export function formatNumber(value: number): string {
   return NUMBER_FORMAT.format(value)
 }
 
+// 柱状图刻度空间有限，大额 token 用「万/亿」缩写；悬停明细仍给完整数字。
+export function formatTokenCount(value: number): string {
+  if (!Number.isFinite(value)) return '—'
+  if (value >= 1e8) return `${Number((value / 1e8).toFixed(2))} 亿`
+  if (value >= 1e4) return `${Number((value / 1e4).toFixed(1))} 万`
+  return formatNumber(value)
+}
+
 // 历史文件按本地日命名（与 HistoryStore.dayKey 一致），不能用 UTC 的 toISOString 切片。
 export function localDayKey(date: Date = new Date()): string {
   const y = date.getFullYear()

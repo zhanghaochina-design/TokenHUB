@@ -170,6 +170,30 @@ export interface TodayStats {
   failures: number
 }
 
+export type UsageWindowKey = 'rolling' | 'weekly' | 'monthly'
+
+// 统计周期边界：start/end 为 ISO 时间，end 取现在；aligned 表示按探针重置时间对齐而非滚动回退。
+export interface UsageWindowBound {
+  key: UsageWindowKey
+  start: string
+  end: string
+  aligned: boolean
+  // 历史保留天数不足以覆盖整个周期时为 true，前端据此标注“数据不足”。
+  partial: boolean
+}
+
+export interface UsageWindow extends UsageWindowBound {
+  promptTokens: number
+  completionTokens: number
+  totalTokens: number
+  requests: number
+}
+
+export interface ProviderUsageStats {
+  providerId: string
+  windows: UsageWindow[]
+}
+
 export interface AppState {
   settings: Settings
   providers: Array<ProviderConfig & { hasKey: boolean }>

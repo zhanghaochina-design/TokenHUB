@@ -39,6 +39,7 @@
 - 模型页「扫描」按供应商探测每个模型的 `/messages` 与 `/chat/completions`（max_tokens=16），结果持久化到 `config.json` 的 `protocolSupport`；扫描不写历史、不计供应商冷却。只有同一模型两个入口都 401（Key 无效）才提前停止，403/402 只记录当前模型并继续。
 - 额度探针默认每 5 分钟探测一次（`quotaRefreshSec` 默认 300，可调）；失败按 30s/1m/2m/4m/8m/15m 指数退避并写 WARN 日志，任何一次成功探测（含手动刷新）都清零失败计数，不得永久停用探针。
 - 额度卡速度仪表由 `getSpeedStats(day)` 聚合当天历史：只统计流式成功请求，速度 = 输出 token ÷（总耗时 − 首字节耗时）；生成耗时 <100ms 或速度 >1000 t/s 视为测量噪声，不参与仪表。
+- 「用量」标签页由 `getUsageStats()` 跨多天聚合历史（`HistoryStore.listRange`），每供应商输出 5 小时/周/月 三个周期的累计 token（输入+输出，只统计成功请求）。探针只给百分比/美元额度、不含 token，故 token 数必须来自本地历史；周期边界用探针 `resetsAt` 反推（`resetsAt − 周期时长`，OpenCode Go/CommandCode），重置时间缺失/已过期、DeepSeek 余额快照及无探针供应商回退「最近 5 小时/7 天/30 天」滚动；月周期按 30 天近似。窗口起点早于历史保留 cutoff 时标 `partial`，界面提示「数据不足」。聚合纯函数在 `core/usage.ts`（`resolveUsageWindows` + `computeUsageStats`），柱状图为手写 SVG（`src/components/UsageBarChart.tsx`），不引图表库。
 - OpenCode Go 要求 `x-opencode-session` 与可识别 User-Agent：优先透传客户端会话头（`x-claude-code-session-id` 等），缺失时每请求生成 UUID，否则上游返回 400。
 - 客户端中断不算供应商故障，不得冷却供应商；上游在首字节后截断则按 transient 冷却，但不切换。瞬时故障冷却按连续次数退避 10/20/40/60 秒；因冷却导致无候选时，503 必须带 `Retry-After`（剩余秒数），客户端据此等待而不是立即重试。
 - 每个供应商可配置 `maxConcurrency`（0=不限，OpenCode Go 与 CommandCode Goat 默认 3）；并发槽从请求开始持有到响应体结束（流式到流结束），满员时按优先级跳到下一家供应商，所有候选都满才在最高优先级排队；排队请求随客户端中断取消。概览页额度卡显示 Hub 持有的实时在途并发数（`AppState.concurrency`）。普通限流 429 在切换前先退避重试一次（默认 1.5 秒；`Retry-After` 超过 3 秒则直接切换），额度类 429 不重试。

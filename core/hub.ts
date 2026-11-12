@@ -8,6 +8,7 @@ import type {
   ProtocolScanResult,
   ProviderConfig,
   ProviderSpeedStats,
+  ProviderUsageStats,
   QuotaSnapshot,
   Settings,
   TodayStats
@@ -17,6 +18,7 @@ import { readText, writeFileAtomic } from './store/fsUtil'
 import { SecretStore, type CipherPort } from './store/secrets'
 import { HistoryStore } from './history/store'
 import { computeSpeedStats } from './speed'
+import { computeUsageStats, resolveUsageWindows } from './usage'
 import { Logger } from './store/logger'
 import { RuntimeStore } from './router/runtime'
 import { buildCatalog } from './providers/catalog'
@@ -585,6 +587,23 @@ export class Hub {
   async getSpeedStats(day: string): Promise<ProviderSpeedStats[]> {
     if (!DAY_PATTERN.test(day)) throw new Error('day must be formatted as YYYY-MM-DD')
     return computeSpeedStats(await this.history.list(day, Number.MAX_SAFE_INTEGER))
+  }
+
+  async getUsageStats(): Promise<ProviderUsageStats[]> {
+    const now = this.now()
+    const retentionDays = this.config.settings.retentionDays
+    const providers = this.config.providers.map((provider) => ({
+      providerId: provider.id,
+      windows: resolveUsageWindows(this.runtime.get(provider.id).quota, now, retentionDays)
+    }))
+    if (providers.length === 0) return []
+    // 只读覆盖最早周期起点到今天的历史文件；聚合再按精确时间边界过滤。
+    let earliestMs = now.getTime()
+    for (const provider of providers) {
+      for (const window of provider.windows) earliestMs = Math.min(earliestMs, Date.parse(window.start))
+    }
+    const records = await this.history.listRange(localDay(new Date(earliestMs)), localDay(now))
+    return computeUsageStats(records, providers)
   }
 
   onStateChange(cb: (state: AppState) => void): void {
