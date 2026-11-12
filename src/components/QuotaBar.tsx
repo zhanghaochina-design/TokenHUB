@@ -8,10 +8,11 @@ interface QuotaBarProps {
   now?: number
 }
 
+// 容量型进度条按 70% / 90% 切警示色，与计量色板约定一致。
 function barTone(percent: number): string {
-  if (percent >= 90) return 'bg-red-500'
-  if (percent >= 70) return 'bg-amber-500'
-  return 'bg-emerald-500'
+  if (percent >= 90) return 'bg-meter-danger'
+  if (percent >= 70) return 'bg-meter-warn'
+  return 'bg-meter-primary'
 }
 
 export function QuotaBar({ label, percent, resetsAt, now = Date.now() }: QuotaBarProps) {
@@ -32,7 +33,7 @@ export function QuotaBar({ label, percent, resetsAt, now = Date.now() }: QuotaBa
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={rounded}
-        className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-neutral-100"
+        className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-meter-track"
       >
         <div className={`h-full rounded-full ${barTone(clamped)}`} style={{ width: `${clamped}%` }} />
       </div>

@@ -521,14 +521,14 @@ export function SettingsPage({ state }: SettingsPageProps) {
             {update?.phase === 'downloading' && update.progress && (
               <div>
                 <div
-                  className="h-2 overflow-hidden rounded-full bg-neutral-200"
+                  className="h-2 overflow-hidden rounded-full bg-meter-track"
                   role="progressbar"
                   aria-valuenow={update.progress.percent}
                   aria-valuemin={0}
                   aria-valuemax={100}
                 >
                   <div
-                    className="h-full rounded-full bg-accent transition-[width]"
+                    className="h-full rounded-full bg-meter-primary transition-[width]"
                     style={{ width: `${update.progress.percent}%` }}
                   />
                 </div>

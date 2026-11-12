@@ -8,6 +8,13 @@
   --color-muted: #5b626c;
   --color-accent: #2563eb;
   --color-accent-strong: #1d4ed8;
+  /* 计量专用色板：所有进度条与仪表只引用这些 token；状态点/徽标仍用语义色。 */
+  --color-meter-track: #e2e8f0;
+  --color-meter-soft: #93c5fd;
+  --color-meter-primary: #2563eb;
+  --color-meter-strong: #1d4ed8;
+  --color-meter-warn: #f59e0b;
+  --color-meter-danger: #ef4444;
 }
 
 :root {

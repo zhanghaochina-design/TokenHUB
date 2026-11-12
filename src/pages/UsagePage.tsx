@@ -75,14 +75,14 @@ function WindowRow({
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={percent}
-        className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-neutral-100"
+        className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-meter-track"
       >
         <div
           className="flex h-full overflow-hidden rounded-full"
           style={{ width: `${ratio}%`, minWidth: window.totalTokens > 0 ? 2 : undefined }}
         >
-          <span className="h-full bg-blue-300" style={{ width: `${inputShare}%` }} />
-          <span className="h-full flex-1 bg-accent" />
+          <span className="h-full bg-meter-soft" style={{ width: `${inputShare}%` }} />
+          <span className="h-full flex-1 bg-meter-primary" />
         </div>
       </div>
       <p className="mt-1 text-[11px] text-muted" title={`统计自 ${formatDateTime(window.start)}`}>
