@@ -9,6 +9,7 @@ const mapping = {
   IMG_OVERVIEW: 'overview.png',
   IMG_OVERVIEW_QUOTA: 'overview-quota.png',
   IMG_HISTORY: 'history.png',
+  IMG_USAGE: 'usage.png',
   IMG_PROVIDERS: 'providers.png',
   IMG_PROVIDER_DIALOG: 'provider-dialog.png',
   IMG_MODELS_COMPAT: 'models-compat.png',

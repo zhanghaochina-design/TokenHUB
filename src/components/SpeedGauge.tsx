@@ -39,7 +39,7 @@ function arcPath(ratio: number): string {
   return `M ${start.x} ${start.y} A ${TRACK_RADIUS} ${TRACK_RADIUS} 0 0 1 ${end.x} ${end.y}`
 }
 
-/** 汽车仪表风格的生成速度表：指针为最新一次，绿色弧线为今日加权平均。 */
+/** 浅色汽车仪表风格的生成速度表：指针为最新一次，蓝色弧线为今日加权平均。 */
 export function SpeedGauge({ stats, className = '' }: SpeedGaugeProps) {
   const uid = useId().replace(/[^a-zA-Z0-9_-]/g, '')
   const latest = stats?.latestTps ?? null
@@ -58,24 +58,28 @@ export function SpeedGauge({ stats, className = '' }: SpeedGaugeProps) {
     <div
       role="img"
       aria-label={label}
-      className={`rounded-xl bg-neutral-950 p-3 text-neutral-100 shadow-inner ring-1 ring-inset ring-white/10 ${className}`}
+      className={`rounded-xl border border-line bg-gradient-to-b from-white to-canvas p-3 shadow-sm ${className}`}
     >
       <svg viewBox="0 0 220 124" className="block w-full" aria-hidden="true">
         <defs>
-          <radialGradient id={`${uid}-face`} cx="50%" cy="100%" r="100%">
-            <stop offset="0%" stopColor="#27272a" />
-            <stop offset="100%" stopColor="#09090b" />
-          </radialGradient>
+          <linearGradient id={`${uid}-face`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#ffffff" />
+            <stop offset="100%" stopColor="#eef2f7" />
+          </linearGradient>
           <linearGradient id={`${uid}-track`} x1="0" y1="0" x2="1" y2="0">
-            <stop offset="0%" stopColor="#3f3f46" />
-            <stop offset="100%" stopColor="#52525b" />
+            <stop offset="0%" stopColor="#e2e8f0" />
+            <stop offset="100%" stopColor="#cbd5e1" />
+          </linearGradient>
+          <linearGradient id={`${uid}-arc`} x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stopColor="#93c5fd" />
+            <stop offset="100%" stopColor="#2563eb" />
           </linearGradient>
         </defs>
 
         <path
           d={`M ${CENTER_X - FACE_RADIUS} ${CENTER_Y} A ${FACE_RADIUS} ${FACE_RADIUS} 0 0 1 ${CENTER_X + FACE_RADIUS} ${CENTER_Y} Z`}
           fill={`url(#${uid}-face)`}
-          stroke="#3f3f46"
+          stroke="#e2e8f0"
           strokeWidth="1"
         />
 
@@ -89,8 +93,8 @@ export function SpeedGauge({ stats, className = '' }: SpeedGaugeProps) {
 
         {average !== null && (
           <>
-            <path d={arcPath(averageRatio)} fill="none" stroke="#34d399" strokeWidth="4" strokeLinecap="round" />
-            <circle cx={averagePoint.x} cy={averagePoint.y} r="3.5" fill="#34d399" stroke="#09090b" strokeWidth="1.5" />
+            <path d={arcPath(averageRatio)} fill="none" stroke={`url(#${uid}-arc)`} strokeWidth="5" strokeLinecap="round" />
+            <circle cx={averagePoint.x} cy={averagePoint.y} r="3.5" fill="#2563eb" stroke="#ffffff" strokeWidth="1.5" />
           </>
         )}
 
@@ -105,7 +109,7 @@ export function SpeedGauge({ stats, className = '' }: SpeedGaugeProps) {
               y1={inner.y}
               x2={outer.x}
               y2={outer.y}
-              stroke={tick % 100 === 0 ? '#d4d4d8' : '#71717a'}
+              stroke={tick % 100 === 0 ? '#94a3b8' : '#cbd5e1'}
               strokeWidth={tick % 100 === 0 ? 1.8 : 1}
               strokeLinecap="round"
             />
@@ -121,7 +125,7 @@ export function SpeedGauge({ stats, className = '' }: SpeedGaugeProps) {
               y={point.y}
               textAnchor="middle"
               dominantBaseline="middle"
-              fill="#a1a1aa"
+              fill="#64748b"
               fontSize="8"
               fontWeight="500"
             >
@@ -136,28 +140,28 @@ export function SpeedGauge({ stats, className = '' }: SpeedGaugeProps) {
             y1={CENTER_Y}
             x2={CENTER_X}
             y2={CENTER_Y - NEEDLE_RADIUS}
-            stroke="#fbbf24"
+            stroke="#1d4ed8"
             strokeWidth="2.5"
             strokeLinecap="round"
           />
         </g>
-        <circle cx={CENTER_X} cy={CENTER_Y} r="5.5" fill="#fbbf24" stroke="#09090b" strokeWidth="2" />
-        <circle cx={CENTER_X} cy={CENTER_Y} r="1.8" fill="#09090b" />
+        <circle cx={CENTER_X} cy={CENTER_Y} r="5.5" fill="#1d4ed8" stroke="#ffffff" strokeWidth="2" />
+        <circle cx={CENTER_X} cy={CENTER_Y} r="1.8" fill="#ffffff" />
       </svg>
 
       <div className="mt-1 flex items-end justify-between gap-3">
         <div className="min-w-0" title="最近一次流式成功请求的生成速度">
-          <p className="text-[10px] uppercase tracking-[0.16em] text-neutral-500">最新</p>
-          <p className="mt-0.5 truncate text-xl font-semibold leading-none tabular-nums text-white">
+          <p className="text-[10px] uppercase tracking-[0.16em] text-muted">最新</p>
+          <p className="mt-0.5 truncate text-xl font-semibold leading-none tabular-nums text-ink">
             {formatSpeed(latest)} <span className="text-[10px] font-normal text-neutral-400">t/s</span>
           </p>
         </div>
         <div className="min-w-0 text-right" title="今日所有流式成功请求：总输出 token ÷ 总生成耗时">
-          <p className="text-[10px] text-neutral-500">今日平均</p>
-          <p className="mt-0.5 truncate text-sm font-medium leading-none tabular-nums text-emerald-300">
+          <p className="text-[10px] text-muted">今日平均</p>
+          <p className="mt-0.5 truncate text-sm font-medium leading-none tabular-nums text-accent-strong">
             {formatSpeed(average)} <span className="text-[10px] font-normal text-neutral-400">t/s</span>
           </p>
-          <p className="mt-1 text-[10px] text-neutral-500">{samples > 0 ? `${samples} 条样本` : '暂无成功请求'}</p>
+          <p className="mt-1 text-[10px] text-neutral-400">{samples > 0 ? `${samples} 条样本` : '暂无成功请求'}</p>
         </div>
       </div>
     </div>

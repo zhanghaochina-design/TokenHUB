@@ -32,33 +32,63 @@ const WINDOW_LABELS: Record<UsageWindow['key'], string> = {
   monthly: '1 个月'
 }
 
-function WindowDetail({ window, resetsAt, now }: { window: UsageWindow; resetsAt: string | null; now: number }) {
+function WindowRow({
+  window,
+  resetsAt,
+  now,
+  maxTotal
+}: {
+  window: UsageWindow
+  resetsAt: string | null
+  now: number
+  maxTotal: number
+}) {
   const countdown = window.aligned ? formatCountdown(resetsAt, now) : null
+  // 没有 token 上限可依，细条按本供应商最大周期定标，只表达三周期之间的相对量级。
+  const ratio = maxTotal > 0 ? Math.min(100, (window.totalTokens / maxTotal) * 100) : 0
+  const inputShare = window.totalTokens > 0 ? (window.promptTokens / window.totalTokens) * 100 : 0
+  const percent = Math.round(ratio * 10) / 10
   return (
-    <li className="rounded-md bg-canvas/60 px-3 py-2.5 ring-1 ring-inset ring-line">
-      <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-1">
-        <span className="text-xs font-medium text-ink">{WINDOW_LABELS[window.key]}</span>
-        <span className="text-sm font-semibold tabular-nums text-ink" title={`${formatNumber(window.totalTokens)} token`}>
+    <li>
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="inline-flex flex-wrap items-center gap-1.5 text-xs font-medium text-ink">
+          {WINDOW_LABELS[window.key]}
+          <span className="inline-flex items-center rounded border border-line bg-neutral-100 px-1 py-0.5 text-[10px] font-medium text-neutral-600">
+            {window.aligned ? '套餐周期' : '滚动'}
+          </span>
+          {window.partial && (
+            <span
+              className="rounded bg-amber-50 px-1 py-0.5 text-[10px] font-medium text-amber-800 ring-1 ring-inset ring-amber-600/20"
+              title="历史保留天数不足以覆盖整个周期"
+            >
+              数据不足
+            </span>
+          )}
+        </span>
+        <span className="shrink-0 text-xs font-semibold tabular-nums text-ink" title={`${formatNumber(window.totalTokens)} token`}>
           {formatTokenCount(window.totalTokens)}
         </span>
       </div>
-      <p className="mt-0.5 text-[11px] tabular-nums text-muted">
-        输入 {formatTokenCount(window.promptTokens)} · 输出 {formatTokenCount(window.completionTokens)}
-      </p>
-      <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted">
-        <span className="rounded-md border border-line bg-neutral-100 px-1.5 py-0.5 font-medium text-neutral-600">
-          {window.aligned ? '套餐周期' : '滚动'}
-        </span>
-        {window.partial && (
-          <span className="rounded-md bg-amber-50 px-1.5 py-0.5 font-medium text-amber-800 ring-1 ring-inset ring-amber-600/20" title="历史保留天数不足以覆盖整个周期">
-            数据不足
-          </span>
-        )}
-        <span>自 {formatDateTime(window.start)}</span>
-        {window.aligned && countdown && countdown !== '—' && (
-          <span>· 重置 {countdown === '已到期' ? '已到期' : `剩 ${countdown}`}</span>
-        )}
+      <div
+        role="progressbar"
+        aria-label={`${WINDOW_LABELS[window.key]} token 用量，相对本供应商最大周期 ${percent}%`}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={percent}
+        className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-neutral-100"
+      >
+        <div
+          className="flex h-full overflow-hidden rounded-full"
+          style={{ width: `${ratio}%`, minWidth: window.totalTokens > 0 ? 2 : undefined }}
+        >
+          <span className="h-full bg-blue-300" style={{ width: `${inputShare}%` }} />
+          <span className="h-full flex-1 bg-accent" />
+        </div>
       </div>
+      <p className="mt-1 text-[11px] text-muted" title={`统计自 ${formatDateTime(window.start)}`}>
+        输入 {formatTokenCount(window.promptTokens)} · 输出 {formatTokenCount(window.completionTokens)}
+        {window.aligned && countdown && countdown !== '—' && ` · 重置${countdown === '已到期' ? '已到期' : `剩 ${countdown}`}`}
+      </p>
     </li>
   )
 }
@@ -76,6 +106,7 @@ function UsageCard({
 }) {
   const status = providerStatus(provider, runtime, now)
   const windows = stats?.windows ?? []
+  const maxTotal = Math.max(0, ...windows.map((window) => window.totalTokens))
   return (
     <li className="rounded-lg border border-line bg-surface p-4 shadow-sm">
       <div className="flex items-center gap-2">
@@ -90,14 +121,15 @@ function UsageCard({
 
       {windows.length > 0 ? (
         <>
-          <UsageBarChart windows={windows} className="mt-3" />
-          <ul className="mt-3 grid list-none gap-2 p-0 sm:grid-cols-3">
+          <UsageBarChart windows={windows} className="mx-auto mt-3 w-full max-w-[320px]" />
+          <ul className="mt-4 grid list-none gap-3.5 p-0">
             {windows.map((window) => (
-              <WindowDetail
+              <WindowRow
                 key={window.key}
                 window={window}
                 resetsAt={runtime?.quota?.windows?.[window.key]?.resetsAt ?? null}
                 now={now}
+                maxTotal={maxTotal}
               />
             ))}
           </ul>

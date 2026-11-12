@@ -14,18 +14,18 @@ const WINDOW_LABELS: Record<UsageWindow['key'], string> = {
 }
 
 const WIDTH = 260
-const HEIGHT = 168
-const BASELINE_Y = 128
-const CHART_HEIGHT = 96
+const HEIGHT = 108
+const BASELINE_Y = 80
+const CHART_HEIGHT = 60
 const BAR_WIDTH = 44
-const INPUT_FILL = '#a7f3d0'
-const OUTPUT_FILL = '#10b981'
+const INPUT_FILL = '#93c5fd'
+const OUTPUT_FILL = '#2563eb'
 
 function centerX(index: number): number {
   return 48 + index * 82
 }
 
-/** 三周期堆叠柱：每根柱是一个周期的累计 token，下浅=输入、上深=输出，按卡片自身最大值定标。 */
+/** 三周期迷你堆叠柱：每根柱是一个周期的累计 token，下浅=输入、上深=输出，按卡片自身最大值定标。 */
 export function UsageBarChart({ windows, className = '' }: UsageBarChartProps) {
   const uid = useId().replace(/[^a-zA-Z0-9_-]/g, '')
   const maxTotal = Math.max(1, ...windows.map((w) => w.totalTokens))
@@ -48,8 +48,8 @@ export function UsageBarChart({ windows, className = '' }: UsageBarChartProps) {
       <svg viewBox={`0 0 ${WIDTH} ${HEIGHT}`} className="block w-full" role="img" aria-label={`周期累计 token：${summary}`}>
         <defs>
           <linearGradient id={`${uid}-output`} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#34d399" />
-            <stop offset="100%" stopColor="#10b981" />
+            <stop offset="0%" stopColor="#60a5fa" />
+            <stop offset="100%" stopColor="#2563eb" />
           </linearGradient>
         </defs>
 
@@ -75,14 +75,11 @@ export function UsageBarChart({ windows, className = '' }: UsageBarChartProps) {
               ) : (
                 <rect x={x} y={BASELINE_Y - 2} width={BAR_WIDTH} height="2" fill="var(--color-line)" />
               )}
-              <text x={cx} y={Math.max(outputY - 6, 14)} textAnchor="middle" fontSize="11" fontWeight="600" fill="var(--color-ink)" className="tabular-nums">
+              <text x={cx} y={Math.max(outputY - 5, 11)} textAnchor="middle" fontSize="10" fontWeight="600" fill="var(--color-ink)" className="tabular-nums">
                 {formatTokenCount(window.totalTokens)}
               </text>
-              <text x={cx} y={148} textAnchor="middle" fontSize="11" fill="var(--color-muted)">
+              <text x={cx} y={96} textAnchor="middle" fontSize="10" fill="var(--color-muted)">
                 {label}
-              </text>
-              <text x={cx} y={162} textAnchor="middle" fontSize="10" fill="var(--color-muted)" className="tabular-nums">
-                {formatNumber(window.requests)} 次
               </text>
             </g>
           )

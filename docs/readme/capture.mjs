@@ -194,6 +194,43 @@ writeFileSync(
   'utf8'
 )
 
+// 用量页展示 5 小时 / 周 / 月三个周期，单日历史会让三根柱完全一样；补 29 天聚合行拉开量级差。
+const usageDays = 30
+const dailyTokens = {
+  'p-open': { prompt: 16000, completion: 6500 },
+  'p-cc': { prompt: 12000, completion: 4500 },
+  'p-ds': { prompt: 7000, completion: 3000 }
+}
+for (let day = 1; day < usageDays; day += 1) {
+  const date = new Date(now.getTime() - day * 86_400_000)
+  const dayRows = providers.map((provider, index) => {
+    const base = dailyTokens[provider.id]
+    const wobble = 0.85 + ((day * (index + 3)) % 7) * 0.05
+    return {
+      ts: iso(new Date(date.getFullYear(), date.getMonth(), date.getDate(), 12, 0, 0)),
+      requestId: `hist_${provider.id}_${String(day).padStart(2, '0')}`,
+      protocol: provider.id === 'p-ds' ? 'openai' : 'anthropic',
+      model: provider.models.cached[0],
+      providerId: provider.id,
+      upstreamModel: provider.models.cached[0],
+      stream: true,
+      httpStatus: 200,
+      outcome: 'ok',
+      promptTokens: Math.round(base.prompt * wobble),
+      completionTokens: Math.round(base.completion * wobble),
+      latencyMs: 1800,
+      firstByteMs: 250,
+      errorKind: null,
+      failoverFrom: []
+    }
+  })
+  writeFileSync(
+    join(DATA, 'history', `${dayKey(date)}.jsonl`),
+    dayRows.map((record) => JSON.stringify(record)).join('\n') + '\n',
+    'utf8'
+  )
+}
+
 function launchEnv() {
   const env = {}
   for (const [key, value] of Object.entries(process.env)) {
@@ -277,6 +314,14 @@ try {
   await win.waitForTimeout(250)
   await historySection.screenshot({ path: join(SHOTS, 'history.png') })
 
+  // 用量：多天历史聚合 + 紧凑用量卡
+  await resize(1440, 1000)
+  await go('#usage')
+  const usageSection = win.locator('section[aria-labelledby="usage-heading"]')
+  await usageSection.scrollIntoViewIfNeeded()
+  await win.waitForTimeout(400)
+  await usageSection.screenshot({ path: join(SHOTS, 'usage.png') })
+
   // 供应商列表 + 编辑对话框
   await resize(1440, 760)
   await go('#providers')
@@ -331,6 +376,7 @@ try {
     'overview.png',
     'overview-quota.png',
     'history.png',
+    'usage.png',
     'providers.png',
     'provider-dialog.png',
     'models-compat.png',
