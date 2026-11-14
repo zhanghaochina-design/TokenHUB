@@ -1,11 +1,23 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Activity, Boxes, Link2, Pencil, Plus, RefreshCw, Search, SearchX, Sparkles, Trash2, X } from 'lucide-react'
-import type { AppState, ModelAlias, ModelProtocolSupport, ProviderRuntime, ProtocolScanResult } from '../../core/types'
+import { Activity, Boxes, Link2, Pencil, Plus, RefreshCw, Search, SearchX, SlidersHorizontal, Sparkles, Trash2, X } from 'lucide-react'
+import type { AppState, EffectiveModelMeta, ModelAlias, ModelProtocolSupport, ProviderRuntime, ProtocolScanResult } from '../../core/types'
 import { suggestModelAliases } from '../../core/providers/aliases'
+import { effectiveModelMeta } from '../../core/providers/modelMeta'
 import { ModelAliasDialog } from '../components/ModelAliasDialog'
+import { ModelMetaDialog } from '../components/ModelMetaDialog'
 import { ProtocolScanDialog } from '../components/ProtocolScanDialog'
 import { Toast } from '../components/Toast'
-import { errorMessage, formatDateTime, providerModelCount, providerStatus, type StatusTone } from '../lib/format'
+import {
+  describeMeta,
+  describeThinking,
+  errorMessage,
+  formatContextLength,
+  formatDateTime,
+  formatNumber,
+  providerModelCount,
+  providerStatus,
+  type StatusTone
+} from '../lib/format'
 
 interface ModelsPageProps {
   state: AppState
@@ -80,6 +92,36 @@ function ProtocolBadges({ support }: { support?: ModelProtocolSupport }) {
   )
 }
 
+const META_BADGE = 'rounded border px-1.5 py-0.5 text-[10px] leading-4'
+const META_BADGE_KNOWN = 'border-line bg-neutral-50 text-neutral-700'
+const META_BADGE_UNKNOWN = 'border-dashed border-line bg-surface text-muted'
+
+// 聚合口径：上下文取各目标最小值、视觉任一支持、思考按同一参数名取交集。
+function MetaBadges({ meta }: { meta: EffectiveModelMeta }) {
+  return (
+    <span className="flex flex-wrap items-center gap-1">
+      <span
+        className={`${META_BADGE} ${meta.contextLength === null ? META_BADGE_UNKNOWN : META_BADGE_KNOWN}`}
+        title={meta.contextLength === null ? '上下文长度未标注' : `上下文 ${formatNumber(meta.contextLength)} tokens（多供应商取最小值）`}
+      >
+        {meta.contextLength === null ? '上下文未标注' : formatContextLength(meta.contextLength)}
+      </span>
+      <span
+        className={`${META_BADGE} ${meta.vision === null ? META_BADGE_UNKNOWN : META_BADGE_KNOWN}`}
+        title={meta.vision === null ? '视觉能力未标注' : meta.vision ? '支持图片输入' : '不支持图片输入'}
+      >
+        {meta.vision === null ? '视觉未标注' : meta.vision ? '视觉' : '无视觉'}
+      </span>
+      <span
+        className={`${META_BADGE} max-w-64 truncate ${meta.thinking === null ? META_BADGE_UNKNOWN : META_BADGE_KNOWN}`}
+        title={describeThinking(meta.thinking)}
+      >
+        {describeThinking(meta.thinking)}
+      </span>
+    </span>
+  )
+}
+
 export function ModelsPage({ state, onOpenProviders }: ModelsPageProps) {
   const [query, setQuery] = useState('')
   const [refreshing, setRefreshing] = useState(false)
@@ -87,6 +129,7 @@ export function ModelsPage({ state, onOpenProviders }: ModelsPageProps) {
   const [now, setNow] = useState(() => Date.now())
   const [aliasEditor, setAliasEditor] = useState<{ initial: ModelAlias | null } | null>(null)
   const [scanResults, setScanResults] = useState<ProtocolScanResult | null>(null)
+  const [metaEditor, setMetaEditor] = useState<{ providerId: string; upstreamModel: string } | null>(null)
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 30_000)
@@ -108,6 +151,7 @@ export function ModelsPage({ state, onOpenProviders }: ModelsPageProps) {
     () => new Map(state.runtime.map((runtime) => [runtime.providerId, runtime])),
     [state.runtime]
   )
+  const metaProvider = metaEditor ? providerById.get(metaEditor.providerId) : undefined
   const suggestions = useMemo(() => suggestModelAliases(state.providers, aliases), [state.providers, aliases])
 
   const normalizedQuery = query.trim().toLowerCase()
@@ -468,11 +512,20 @@ export function ModelsPage({ state, onOpenProviders }: ModelsPageProps) {
                 <li
                   key={model.id}
                   className="flex items-start justify-between gap-4 px-4 py-3 transition-colors hover:bg-neutral-50/80"
-                  title={model.targets.map((target) => `${providerName(target.providerId)}: ${target.upstreamModel}`).join('\n')}
+                  title={model.targets
+                    .map((target) => {
+                      const provider = providerById.get(target.providerId)
+                      if (!provider) return `${target.providerId}: ${target.upstreamModel}`
+                      return `${provider.name}: ${target.upstreamModel}（${describeMeta(effectiveModelMeta(provider, target.upstreamModel))}）`
+                    })
+                    .join('\n')}
                 >
-                  <span className="flex min-w-0 flex-wrap items-center gap-2">
-                    <span className="break-all font-mono text-[13px] leading-5 text-ink">{model.id}</span>
-                    {model.isAlias && <span className="rounded bg-accent/10 px-1.5 py-0.5 text-[11px] font-medium text-accent">统一</span>}
+                  <span className="flex min-w-0 flex-1 flex-col gap-1">
+                    <span className="flex min-w-0 flex-wrap items-center gap-2">
+                      <span className="break-all font-mono text-[13px] leading-5 text-ink">{model.id}</span>
+                      {model.isAlias && <span className="rounded bg-accent/10 px-1.5 py-0.5 text-[11px] font-medium text-accent">统一</span>}
+                    </span>
+                    <MetaBadges meta={model.meta} />
                   </span>
                   <span className="flex shrink-0 flex-wrap justify-end gap-1.5">
                     {model.targets.map((target) => {
@@ -487,6 +540,16 @@ export function ModelsPage({ state, onOpenProviders }: ModelsPageProps) {
                             now={now}
                           />
                           <ProtocolBadges support={provider?.protocolSupport?.[target.upstreamModel]} />
+                          <button
+                            type="button"
+                            aria-label={`编辑 ${provider?.name ?? target.providerId} / ${target.upstreamModel} 元数据`}
+                            title="编辑上下文、视觉与思考参数"
+                            disabled={!provider}
+                            onClick={() => setMetaEditor({ providerId: target.providerId, upstreamModel: target.upstreamModel })}
+                            className="flex size-6 items-center justify-center rounded border border-line bg-surface text-muted transition-colors hover:bg-neutral-50 hover:text-ink disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            <SlidersHorizontal className="size-3" aria-hidden="true" />
+                          </button>
                         </span>
                       )
                     })}
@@ -505,6 +568,14 @@ export function ModelsPage({ state, onOpenProviders }: ModelsPageProps) {
           initial={aliasEditor.initial}
           onClose={() => setAliasEditor(null)}
           onSave={handleSaveAlias}
+        />
+      )}
+      {metaEditor && metaProvider && (
+        <ModelMetaDialog
+          provider={metaProvider}
+          upstreamModel={metaEditor.upstreamModel}
+          onClose={() => setMetaEditor(null)}
+          onSave={(meta) => window.tokenhub.saveModelMeta(metaProvider.id, metaEditor.upstreamModel, meta)}
         />
       )}
       {scanResults && <ProtocolScanDialog result={scanResults} onClose={() => setScanResults(null)} />}

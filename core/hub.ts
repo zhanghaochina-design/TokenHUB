@@ -5,6 +5,7 @@ import type {
   HistoryRecord,
   HistorySink,
   ModelAlias,
+  ModelMeta,
   ProtocolScanResult,
   ProviderConfig,
   ProviderSpeedStats,
@@ -22,6 +23,7 @@ import { computeUsageStats, resolveUsageWindows } from './usage'
 import { Logger } from './store/logger'
 import { RuntimeStore } from './router/runtime'
 import { buildCatalog } from './providers/catalog'
+import { normalizeModelMeta } from './providers/modelMeta'
 import { createProviderFromPreset, providerConcurrencyLimit } from './providers/presets'
 import { ProviderGate } from './server/gate'
 import { discoverModels } from './providers/discover'
@@ -228,6 +230,8 @@ export class Hub {
               Object.entries(provider.protocolSupport).map(([model, support]) => [model, { ...support }])
             )
           : undefined,
+        modelMeta: provider.modelMeta ? structuredClone(provider.modelMeta) : undefined,
+        modelDiscovery: provider.modelDiscovery ? structuredClone(provider.modelDiscovery) : undefined,
         quota: { ...provider.quota },
         hasKey: this.secrets?.hasProviderKey(provider.id) ?? false
       })),
@@ -384,6 +388,26 @@ export class Hub {
     this.emit()
   }
 
+  // meta 为 null 时删除手动覆盖，回退内置建议；空字段不落盘，避免 config.json 堆积空对象。
+  async saveModelMeta(providerId: string, upstreamModel: string, meta: ModelMeta | null): Promise<void> {
+    const provider = this.requireProvider(providerId)
+    const model = upstreamModel.trim()
+    if (!model) throw new Error('model is required')
+    if (meta === null) {
+      if (!provider.modelMeta || !(model in provider.modelMeta)) return
+      const next = { ...provider.modelMeta }
+      delete next[model]
+      provider.modelMeta = Object.keys(next).length > 0 ? next : undefined
+    } else {
+      const normalized = normalizeModelMeta(meta)
+      if (!normalized) throw new Error('model meta is empty')
+      provider.modelMeta = { ...(provider.modelMeta ?? {}), [model]: normalized }
+    }
+    await this.persistConfig()
+    this.rebuildCatalog()
+    this.emit()
+  }
+
   async deleteModelAlias(id: string): Promise<void> {
     if (!this.config.modelAliases.some((alias) => alias.id === id)) throw new Error(`unknown model alias: ${id}`)
     this.config.modelAliases = this.config.modelAliases.filter((alias) => alias.id !== id)
@@ -411,7 +435,7 @@ export class Hub {
     const errors: string[] = []
     let models: string[] = []
     try {
-      models = await discoverModels(provider.baseUrl, apiKey, this.fetchFn ?? fetch)
+      models = (await discoverModels(provider.baseUrl, apiKey, this.fetchFn ?? fetch)).map((model) => model.id)
     } catch (error) {
       errors.push(`models: ${messageOf(error)}`)
     }
@@ -676,7 +700,11 @@ export class Hub {
     if (!apiKey) return false
     try {
       const models = await discoverModels(provider.baseUrl, apiKey, this.fetchFn ?? fetch)
-      provider.models.cached = models
+      provider.models.cached = models.map((model) => model.id)
+      // 发现值整体重写：上游不再返回元数据时同步清空，避免展示过时的能力。
+      const discovered: Record<string, ModelMeta> = {}
+      for (const model of models) if (model.meta) discovered[model.id] = model.meta
+      provider.modelDiscovery = Object.keys(discovered).length > 0 ? discovered : undefined
       provider.models.lastSyncedAt = this.now().toISOString()
       return true
     } catch (error) {

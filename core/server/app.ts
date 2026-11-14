@@ -285,17 +285,31 @@ export function createApp(deps: AppDeps): Hono {
 
   app.get('/health', (c) => c.json({ status: 'ok', name: APP_NAME, port: deps.getPort?.() ?? null, paused: deps.isPaused() }))
 
+  // 能力字段是增量扩展：标准客户端会忽略，Agent 可据此选择上下文/视觉/思考档位。
   app.get('/v1/models', (c) => {
     const catalog = deps.getCatalog()
+    const capabilities = (model: MergedModel) => ({
+      context_length: model.meta.contextLength,
+      capabilities: { vision: model.meta.vision, thinking: model.meta.thinking }
+    })
     if (c.req.header('anthropic-version')) {
       return c.json({
-        data: catalog.map((m) => ({ id: m.id, type: 'model', display_name: m.id, created_at: '2026-01-01T00:00:00Z' })),
+        data: catalog.map((m) => ({
+          id: m.id,
+          type: 'model',
+          display_name: m.id,
+          created_at: '2026-01-01T00:00:00Z',
+          ...capabilities(m)
+        })),
         has_more: false,
         first_id: catalog[0]?.id ?? null,
         last_id: catalog.at(-1)?.id ?? null
       })
     }
-    return c.json({ object: 'list', data: catalog.map((m) => ({ id: m.id, object: 'model', owned_by: APP_NAME, created: 0 })) })
+    return c.json({
+      object: 'list',
+      data: catalog.map((m) => ({ id: m.id, object: 'model', owned_by: APP_NAME, created: 0, ...capabilities(m) }))
+    })
   })
 
   app.post('/v1/chat/completions', async (c) => {

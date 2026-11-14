@@ -1,7 +1,8 @@
 import { rename } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { AppConfig, ModelAlias, ModelProtocolSupport, ProviderConfig } from '../types'
+import type { AppConfig, ModelAlias, ModelMeta, ModelProtocolSupport, ProviderConfig } from '../types'
 import { defaultMaxConcurrency } from '../providers/presets'
+import { normalizeModelMeta } from '../providers/modelMeta'
 import { readText, writeFileAtomic } from './fsUtil'
 
 export function defaultConfig(): AppConfig {
@@ -85,6 +86,17 @@ function normalizeProtocolSupport(raw: unknown): Record<string, ModelProtocolSup
   return Object.keys(out).length > 0 ? out : undefined
 }
 
+function normalizeModelMetaRecord(raw: unknown): Record<string, ModelMeta> | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined
+  const out: Record<string, ModelMeta> = {}
+  for (const [model, value] of Object.entries(raw as Record<string, unknown>)) {
+    const id = model.trim()
+    const meta = normalizeModelMeta(value)
+    if (id && meta) out[id] = meta
+  }
+  return Object.keys(out).length > 0 ? out : undefined
+}
+
 function normalizeProvider(raw: unknown): ProviderConfig {
   const p = (raw ?? {}) as Partial<ProviderConfig>
   return {
@@ -105,6 +117,8 @@ function normalizeProvider(raw: unknown): ProviderConfig {
       lastSyncedAt: p.models?.lastSyncedAt ?? null
     },
     protocolSupport: normalizeProtocolSupport(p.protocolSupport),
+    modelMeta: normalizeModelMetaRecord(p.modelMeta),
+    modelDiscovery: normalizeModelMetaRecord(p.modelDiscovery),
     quota: {
       lowBalanceThreshold: finiteValue(p.quota?.lowBalanceThreshold, 0.5, 0),
       // 冷却时长会直接参与 new Date(now + ms)，非有限值会让冷却与 UI 倒计时崩掉。

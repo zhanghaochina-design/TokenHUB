@@ -1,4 +1,4 @@
-import type { Availability, ErrorKind, ProviderConfig, ProviderRuntime, QuotaSnapshot } from '../../core/types'
+import type { Availability, EffectiveModelMeta, ErrorKind, ModelThinkingMeta, ProviderConfig, ProviderRuntime, QuotaSnapshot } from '../../core/types'
 
 export type StatusTone = 'ok' | 'warn' | 'error' | 'muted'
 
@@ -57,6 +57,27 @@ const NUMBER_FORMAT = new Intl.NumberFormat('zh-CN')
 
 export function formatNumber(value: number): string {
   return NUMBER_FORMAT.format(value)
+}
+
+// 上下文窗口按 K/M 缩写，避免在模型行里撑开宽度；完整数字放在 title 里。
+export function formatContextLength(value: number | null): string {
+  if (value === null || !Number.isFinite(value) || value <= 0) return '未标注'
+  if (value >= 1_000_000) return `${Number((value / 1_000_000).toFixed(2))}M`
+  if (value >= 1_000) return `${Number((value / 1_000).toFixed(1))}K`
+  return String(value)
+}
+
+export function describeThinking(thinking: ModelThinkingMeta | null): string {
+  if (!thinking) return '思考未标注'
+  if (thinking.param === 'none') return '无思考参数'
+  if (thinking.param === 'builtin') return '内置推理'
+  return thinking.values.length > 0 ? `${thinking.param}: ${thinking.values.join(' / ')}` : thinking.param
+}
+
+export function describeMeta(meta: EffectiveModelMeta): string {
+  const context = meta.contextLength === null ? '上下文未标注' : `上下文 ${formatNumber(meta.contextLength)}`
+  const vision = meta.vision === null ? '视觉未标注' : meta.vision ? '支持视觉' : '不支持视觉'
+  return `${context} · ${vision} · ${describeThinking(meta.thinking)}`
 }
 
 // 柱状图刻度空间有限，大额 token 用「万/亿」缩写；悬停明细仍给完整数字。

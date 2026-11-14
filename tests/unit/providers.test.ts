@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { APP_VERSION } from '../../core/appInfo'
 import { PROVIDER_PRESETS, anthropicBaseUrlFor, createProviderFromPreset, defaultAnthropicBaseUrl, defaultMaxConcurrency, providerConcurrencyLimit, protocolSupported, upstreamExtraHeaders, upstreamProtocol } from '../../core/providers/presets'
 import { buildCatalog, parseRequestedModel, providerSupports } from '../../core/providers/catalog'
-import { discoverModels } from '../../core/providers/discover'
+import { discoverModels, modelMetaFromUpstream } from '../../core/providers/discover'
 
 describe('presets', () => {
   it('ships the three providers with correct endpoints', () => {
@@ -111,7 +111,34 @@ describe('discoverModels', () => {
   it('dedupes and sorts ids', async () => {
     const fetchFn = async () =>
       new Response(JSON.stringify({ data: [{ id: 'b' }, { id: 'a' }, { id: 'a' }] }), { status: 200 })
-    await expect(discoverModels('https://x/v1', 'k', fetchFn as never)).resolves.toEqual(['a', 'b'])
+    await expect(discoverModels('https://x/v1', 'k', fetchFn as never)).resolves.toEqual([{ id: 'a' }, { id: 'b' }])
+  })
+
+  it('reads OpenCode Go capability metadata', async () => {
+    const fetchFn = async () =>
+      new Response(JSON.stringify({
+        data: [{
+          id: 'm1',
+          limit: { context: 1_000_000, output: 384_000 },
+          modalities: { input: ['text', 'image/png'] },
+          capabilities: { reasoning: { supported: true, effort: ['low', 'high', 'max'] } }
+        }]
+      }), { status: 200 })
+    await expect(discoverModels('https://x/v1', 'k', fetchFn as never)).resolves.toEqual([{
+      id: 'm1',
+      meta: {
+        contextLength: 1_000_000,
+        vision: true,
+        thinking: { param: 'effort', values: ['low', 'high', 'max'] }
+      }
+    }])
+  })
+
+  it('reads CommandCode context length and keeps missing fields unknown', () => {
+    expect(modelMetaFromUpstream({ context_length: 200_000 })).toEqual({ contextLength: 200_000 })
+    expect(modelMetaFromUpstream({ modalities: { input: ['text'] }, capabilities: { reasoning: { supported: false } } }))
+      .toEqual({ vision: false, thinking: { param: 'none', values: [] } })
+    expect(modelMetaFromUpstream({ id: 'plain' })).toBeUndefined()
   })
 
   it('throws on non-2xx', async () => {
@@ -126,10 +153,17 @@ describe('catalog', () => {
     enabled,
     models: { cached: models, manual: [] as string[], lastSyncedAt: null }
   })
+  // 本组只关心路由与合并；能力元数据另有 modelMeta 测试覆盖。
+  const withoutMeta = (models: ReturnType<typeof buildCatalog>) =>
+    models.map((model) => {
+      const { meta, ...rest } = model
+      void meta
+      return rest
+    })
 
   it('merges same model across providers preserving provider order', () => {
     const catalog = buildCatalog([p('a', ['glm-5.1']), p('b', ['glm-5.1', 'deepseek-chat']), p('c', ['glm-5.1'], false)])
-    expect(catalog).toEqual([
+    expect(withoutMeta(catalog)).toEqual([
       {
         id: 'deepseek-chat',
         providers: ['b'],
@@ -149,7 +183,7 @@ describe('catalog', () => {
   it('includes manual models', () => {
     const provider = p('a', [])
     provider.models.manual = ['m1']
-    expect(buildCatalog([provider])).toEqual([
+    expect(withoutMeta(buildCatalog([provider]))).toEqual([
       { id: 'm1', providers: ['a'], targets: [{ providerId: 'a', upstreamModel: 'm1', source: 'exact' }] }
     ])
     expect(providerSupports(provider, 'm1')).toBe(true)
@@ -167,7 +201,7 @@ describe('catalog', () => {
         ]
       }
     ])
-    expect(catalog).toEqual([
+    expect(withoutMeta(catalog)).toEqual([
       {
         id: 'deepseek4.1flash',
         providers: ['a', 'b'],
@@ -183,7 +217,7 @@ describe('catalog', () => {
   it('lets an explicit alias target win over a raw model with the same canonical id', () => {
     const a = p('a', ['m'])
     const catalog = buildCatalog([a], [{ id: 'm', targets: [{ providerId: 'a', upstreamModel: 'm-real' }] }])
-    expect(catalog).toEqual([
+    expect(withoutMeta(catalog)).toEqual([
       {
         id: 'm',
         providers: ['a'],
@@ -197,7 +231,7 @@ describe('catalog', () => {
     const a = p('a', ['m'])
     const b = p('b', ['b-real'])
     const catalog = buildCatalog([a, b], [{ id: 'm', targets: [{ providerId: 'b', upstreamModel: 'b-real' }] }])
-    expect(catalog).toEqual([
+    expect(withoutMeta(catalog)).toEqual([
       {
         id: 'm',
         providers: ['a', 'b'],
@@ -217,7 +251,7 @@ describe('catalog', () => {
       { id: 'x', targets: [{ providerId: 'a', upstreamModel: 'x' }, { providerId: 'c', upstreamModel: 'c-model' }, { providerId: 'missing', upstreamModel: 'z' }] },
       { id: 'orphan', targets: [] }
     ])
-    expect(catalog).toEqual([
+    expect(withoutMeta(catalog)).toEqual([
       {
         id: 'x',
         providers: ['a'],

@@ -26,6 +26,26 @@ export interface ProtocolScanResult {
   error?: string
 }
 
+// 上游模型的思考参数：沿用原生参数名与取值，网关只展示、不换算。
+export interface ModelThinkingMeta {
+  // 原生参数名，如 reasoning_effort、thinking.budget_tokens；'none' 表示无参数化思考。
+  param: string
+  values: string[]
+}
+
+// 手动覆盖只保存显式字段：缺省回退内置建议，null 表示明确未知/不支持。
+export interface ModelMeta {
+  contextLength?: number | null
+  vision?: boolean | null
+  thinking?: ModelThinkingMeta | null
+}
+
+export interface EffectiveModelMeta {
+  contextLength: number | null
+  vision: boolean | null
+  thinking: ModelThinkingMeta | null
+}
+
 export interface ProviderQuotaConfig {
   lowBalanceThreshold: number
   quotaCooldownMs: number
@@ -46,6 +66,10 @@ export interface ProviderConfig {
   models: { cached: string[]; manual: string[]; lastSyncedAt: string | null }
   // 键为上游模型 ID；缺失表示尚未扫描，路由回退到预设默认。
   protocolSupport?: Record<string, ModelProtocolSupport>
+  // 键为上游模型 ID；只存手动覆盖，未命中时回退发现值、再回退内置建议表。
+  modelMeta?: Record<string, ModelMeta>
+  // 键为上游模型 ID；每次刷新模型时按上游 /models 响应重写，清空即表示上游未提供。
+  modelDiscovery?: Record<string, ModelMeta>
   quota: ProviderQuotaConfig
 }
 
@@ -115,6 +139,8 @@ export interface MergedModel {
   id: string
   providers: string[]
   targets: MergedModelTarget[]
+  // 各目标的能力聚合：上下文取最小值、视觉任一支持、思考按同一参数名取交集。
+  meta: EffectiveModelMeta
   // 由 modelAliases 显式定义（或包含隐式同名 target）时为 true，用于 UI 徽标。
   isAlias?: boolean
 }

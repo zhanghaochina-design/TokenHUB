@@ -66,6 +66,64 @@ describe('Hub', () => {
     await hub.shutdown()
   })
 
+  it('persists manual model metadata and rebuilds the catalog', async () => {
+    const { hub, dir } = await boot()
+    await hub.addProvider({ preset: 'custom', name: 'P', baseUrl: 'https://p.example/v1', apiKey: 'sk' })
+    const providerId = hub.getState().providers[0].id
+    const meta = {
+      contextLength: 4096,
+      vision: true,
+      thinking: { param: 'reasoning_effort', values: ['low', 'high'] }
+    }
+    await hub.saveModelMeta(providerId, 'm1', meta)
+    expect(hub.getState().catalog.find((model) => model.id === 'm1')?.meta).toEqual(meta)
+
+    const saved = JSON.parse(await readFile(join(dir, 'config.json'), 'utf8')) as {
+      providers: Array<{ modelMeta?: Record<string, unknown> }>
+    }
+    expect(saved.providers[0].modelMeta).toEqual({ m1: meta })
+
+    await hub.saveModelMeta(providerId, 'm1', null)
+    expect(hub.getState().providers[0].modelMeta).toBeUndefined()
+    expect(hub.getState().catalog.find((model) => model.id === 'm1')?.meta).toEqual({
+      contextLength: null,
+      vision: null,
+      thinking: null
+    })
+    await hub.shutdown()
+  })
+
+  it('stores capability metadata discovered from the models endpoint', async () => {
+    const fetchFn: FakeFetch = async (url) => {
+      if (String(url).endsWith('/models')) {
+        return new Response(JSON.stringify({
+          data: [{
+            id: 'm1',
+            limit: { context: 1_000_000 },
+            modalities: { input: ['text', 'image/png'] },
+            capabilities: { reasoning: { supported: true, effort: ['low', 'max'] } }
+          }]
+        }), { status: 200 })
+      }
+      return new Response('{}', { status: 200 })
+    }
+    const { hub } = await boot({ fetchFn })
+    await hub.addProvider({ preset: 'custom', name: 'P', baseUrl: 'https://p.example/v1', apiKey: 'sk' })
+    const providerId = hub.getState().providers[0].id
+    const expected = {
+      contextLength: 1_000_000,
+      vision: true,
+      thinking: { param: 'effort', values: ['low', 'max'] }
+    }
+    expect(hub.getState().providers[0].modelDiscovery).toEqual({ m1: expected })
+    expect(hub.getState().catalog[0].meta).toEqual(expected)
+
+    // 手动覆盖只替换指定字段，其余继续沿用发现值。
+    await hub.saveModelMeta(providerId, 'm1', { contextLength: 4096 })
+    expect(hub.getState().catalog[0].meta).toMatchObject({ contextLength: 4096, vision: true })
+    await hub.shutdown()
+  })
+
   it('exposes per-provider concurrency slots in state', async () => {
     const { hub } = await boot()
     await hub.addProvider({ preset: 'opencode-go', name: 'Go', baseUrl: 'https://opencode.ai/zen/go/v1', apiKey: 'sk-1' })

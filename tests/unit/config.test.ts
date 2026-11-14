@@ -64,6 +64,45 @@ describe('config store', () => {
     })
   })
 
+  it('normalizes model metadata overrides and drops empty entries', () => {
+    const cfg = normalizeConfig({
+      providers: [
+        {
+          id: 'p1',
+          name: 'P1',
+          preset: 'custom',
+          baseUrl: 'https://p1.example/v1',
+          modelMeta: {
+            ' claude-x ': {
+              contextLength: 1234.9,
+              vision: true,
+              thinking: { param: 'thinking.budget_tokens', values: ['1024', ' 1024 ', ''] }
+            },
+            bad: { contextLength: 'x', vision: 'yes' },
+            empty: {}
+          },
+          modelDiscovery: {
+            'claude-x': { contextLength: 1_000_000, vision: true, thinking: { param: 'effort', values: ['low', 'max'] } }
+          }
+        }
+      ]
+    })
+    expect(cfg.providers[0].modelDiscovery).toEqual({
+      'claude-x': {
+        contextLength: 1_000_000,
+        vision: true,
+        thinking: { param: 'effort', values: ['low', 'max'] }
+      }
+    })
+    expect(cfg.providers[0].modelMeta).toEqual({
+      'claude-x': {
+        contextLength: 1234,
+        vision: true,
+        thinking: { param: 'thinking.budget_tokens', values: ['1024'] }
+      }
+    })
+  })
+
   it('normalizes the optional Anthropic base url', () => {
     const cfg = normalizeConfig({
       providers: [

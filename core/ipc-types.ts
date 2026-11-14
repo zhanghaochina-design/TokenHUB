@@ -1,4 +1,4 @@
-import type { AppState, HistoryRecord, ModelAlias, Preset, ProtocolScanResult, ProviderConfig, ProviderSpeedStats, ProviderUsageStats, QuotaAdapterId, QuotaSnapshot, Settings } from './types'
+import type { AppState, HistoryRecord, ModelAlias, ModelMeta, Preset, ProtocolScanResult, ProviderConfig, ProviderSpeedStats, ProviderUsageStats, QuotaAdapterId, QuotaSnapshot, Settings } from './types'
 
 export interface ProviderInput {
   preset: Preset
@@ -44,6 +44,8 @@ export interface TokenHubApi {
   resetProvider(id: string): Promise<void>
   saveModelAlias(alias: ModelAlias, previousId?: string): Promise<void>
   deleteModelAlias(id: string): Promise<void>
+  // meta 为 null 时恢复内置建议。
+  saveModelMeta(providerId: string, upstreamModel: string, meta: ModelMeta | null): Promise<void>
   updateSettings(patch: Partial<Settings>): Promise<void>
   setLocalKey(key: string | null): Promise<void>
   setPaused(paused: boolean): Promise<void>

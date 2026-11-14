@@ -1,7 +1,7 @@
 import { app, ipcMain } from 'electron'
 import type { Hub } from '../core/hub'
 import type { ProviderInput, ProviderPatch, TokenHubApi, UpdateState } from '../core/ipc-types'
-import type { AppState, ModelAlias, Settings } from '../core/types'
+import type { AppState, ModelAlias, ModelMeta, Settings } from '../core/types'
 import type { UpdateController } from './updateController'
 
 // 自启注册表写入可能因权限/平台差异失败；失败只降级为本次不生效，不能连带阻断设置保存。
@@ -35,6 +35,9 @@ export function registerIpc(
   ipcMain.handle('tokenhub:resetProvider', (_e, id: string) => hub.resetProvider(id))
   ipcMain.handle('tokenhub:saveModelAlias', (_e, alias: ModelAlias, previousId?: string) => hub.saveModelAlias(alias, previousId))
   ipcMain.handle('tokenhub:deleteModelAlias', (_e, id: string) => hub.deleteModelAlias(id))
+  ipcMain.handle('tokenhub:saveModelMeta', (_e, providerId: string, upstreamModel: string, meta: ModelMeta | null) =>
+    hub.saveModelMeta(providerId, upstreamModel, meta)
+  )
   ipcMain.handle('tokenhub:setLocalKey', (_e, key: string | null) => hub.setLocalKey(key))
   ipcMain.handle('tokenhub:setPaused', (_e, paused: boolean) => hub.setPaused(paused))
   ipcMain.handle('tokenhub:getHistory', (_e, day: string, limit?: number) => hub.getHistory(day, limit))

@@ -1,4 +1,5 @@
 import type { MergedModel, MergedModelTarget, ModelAlias, ProviderConfig } from '../types'
+import { aggregateModelMeta, effectiveModelMeta } from './modelMeta'
 
 export function providerSupports(provider: ProviderConfig, model: string): boolean {
   return provider.models.cached.includes(model) || provider.models.manual.includes(model)
@@ -7,6 +8,7 @@ export function providerSupports(provider: ProviderConfig, model: string): boole
 export function buildCatalog(providers: ProviderConfig[], aliases: ModelAlias[] = []): MergedModel[] {
   const enabled = providers.filter((provider) => provider.enabled)
   const providerOrder = new Map(enabled.map((provider, index) => [provider.id, index]))
+  const providerById = new Map(enabled.map((provider) => [provider.id, provider]))
   const aliasById = new Map<string, ModelAlias>()
   for (const alias of aliases) {
     if (!aliasById.has(alias.id)) aliasById.set(alias.id, alias)
@@ -54,7 +56,10 @@ export function buildCatalog(providers: ProviderConfig[], aliases: ModelAlias[] 
     const model: MergedModel = {
       id,
       providers: [...new Set(list.map((target) => target.providerId))],
-      targets: list
+      targets: list,
+      meta: aggregateModelMeta(
+        list.map((target) => effectiveModelMeta(providerById.get(target.providerId)!, target.upstreamModel))
+      )
     }
     if (aliasById.has(id)) model.isAlias = true
     catalog.push(model)

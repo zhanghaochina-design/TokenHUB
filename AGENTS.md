@@ -29,9 +29,10 @@
 - 本地服务只绑定 `127.0.0.1`，默认端口 8787；端口与本地 Key 可在设置页修改。
 - 供应商优先级等于 `config.providers` 数组顺序；任何增删改、重排、启停都必须重建 `catalog`，否则路由顺序会停留在旧值。
 - `config.modelAliases` 是本地统一模型 ID 到各供应商 upstream ID 的手动映射；显式映射优先，原始 ID 恰好等于统一 ID 的其他供应商会自动纳入；被映射的原始 ID 从 `/v1/models` 隐藏，仍可用 `providerId/原始ID` 强制访问。模型页的自动建议只生成候选，绝不自动合并。
+- 模型能力元数据（上下文长度、视觉、思考参数）按「供应商 + 上游模型 ID」保存，生效优先级：`provider.modelMeta`（手动覆盖）> `provider.modelDiscovery`（刷新模型时按上游 `/models` 响应整体重写）> `core/providers/modelMeta.ts` 内置建议表（`MODEL_META_AS_OF` 标注采集时间，未命中的模型为未标注）。上游字段来源：OpenCode Go 的 `limit.context`、`modalities.input`、`capabilities.reasoning.effort`（思考参数记为 `effort`）；CommandCode 只有 `context_length`；DeepSeek 官方 `/models` 只有 ID，走内置/手动。思考参数沿用上游原生参数名与取值（如 `effort`、`thinking.budget_tokens`、`none`、`builtin`），网关只展示不换算、不注入。统一模型的聚合口径：上下文取各目标最小值，视觉任一支持即支持，思考仅在同一参数名时取交集，否则不聚合。`/v1/models` 两种形状都追加 `context_length` 与 `capabilities: { vision, thinking }`，客户端不读取时无影响。
 - 密钥只保存在 `%APPDATA%/TokenHUB/secrets.bin`（Electron safeStorage/DPAPI），禁止明文落盘、写日志或历史；历史只存请求元数据。
 - OpenCode Go 额度查询使用控制台同款 `/zen/go/v1/usage` 接口；响应无法识别时必须按探针失败处理，不能当成“正常”。
-- CommandCode Goat 用控制台同款 `/alpha/billing/credits`、`/alpha/billing/subscriptions`、`/alpha/whoami`（Bearer Provider API Key）读取 5 小时/周/月额度；未识别套餐时月上限按 $70 估算，余额高于上限时以余额定标；接口未公开，403/解析失败按探针失败处理，401 才是 Key 无效；DeepSeek 用 `/user/balance`。
+- CommandCode Goat 用控制台同款 `/alpha/billing/credits`、`/alpha/billing/subscriptions`、`/alpha/whoami`（Bearer Provider API Key）读取 5 小时/周/月额度；个人账号的 whoami 返回 `org: null`，订阅必须不带参数查询（把 user id 当 `orgId` 会 403），团队账号仍按 `orgId` 过滤；未识别套餐时月上限按 $70 估算，余额高于上限时以余额定标；接口未公开，403/解析失败按探针失败处理，401 才是 Key 无效；DeepSeek 用 `/user/balance`。
 - DeepSeek 的 Anthropic 入口与 OpenAI 不同：官方 Anthropic base 为 `https://api.deepseek.com/anthropic/v1`（OpenCode Go/CommandCode 仍与 Base URL 共用）。供应商可配置 `anthropicBaseUrl` 覆盖；留空时 DeepSeek 官方域名自动推导，其它预设沿用 Base URL。扫描与 `/messages` 转发都必须走这个 resolver。
 - Anthropic 转译：`tool_result` 必须排在用户文本之前；如果响应/流里出现 `tool_use` 块，`finish_reason: stop` 也要映射为 `tool_use`；流式故障切换只允许发生在首字节前。
 - Anthropic 用量口径：总输入 = `input_tokens + cache_read_input_tokens + cache_creation_input_tokens`；上游可能只在最终 `message_delta` 给输入量（OpenCode Go 实测 `message_start` 全为 0），旁路解析与非流式读取都不得只看 `message_start` / 单取 `input_tokens`。
