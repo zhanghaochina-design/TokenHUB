@@ -49,6 +49,16 @@ function seedConfig(dataDir: string): void {
   )
 }
 
+async function modelIds(): Promise<string[]> {
+  try {
+    const response = await fetch(MODELS_URL)
+    const body = (await response.json()) as { data?: Array<{ id: string }> }
+    return (body.data ?? []).map((model) => model.id)
+  } catch {
+    return []
+  }
+}
+
 async function modelEntry(id: string): Promise<{ context_length: number | null; capabilities: { vision: boolean | null } } | undefined> {
   try {
     const response = await fetch(MODELS_URL)
@@ -60,6 +70,36 @@ async function modelEntry(id: string): Promise<{ context_length: number | null; 
     return undefined
   }
 }
+
+test('hides a model from the local listing and restores it', async () => {
+  const dataDir = mkdtempSync(join(tmpdir(), 'tokenhub-e2e-hidden-'))
+  seedConfig(dataDir)
+  let app: ElectronApplication | undefined
+  try {
+    app = await electron.launch({ args: ['.'], env: launchEnv(dataDir) })
+    const win = await app.firstWindow()
+    await expect.poll(() => modelIds(), { timeout: 15_000 }).toEqual(['claude-sonnet-4-5', 'plain-model'])
+
+    await win.getByRole('link', { name: '模型' }).click()
+    const modelList = win.getByRole('list', { name: '模型列表', exact: true })
+    await win.getByRole('button', { name: '隐藏 Provider A / claude-sonnet-4-5 条目' }).click()
+
+    await expect.poll(() => modelIds(), { timeout: 10_000 }).toEqual(['plain-model'])
+    await expect(modelList.getByText('claude-sonnet-4-5', { exact: true })).toHaveCount(0)
+    await expect(modelList.getByText('已隐藏', { exact: true })).toHaveCount(0)
+
+    await win.getByRole('button', { name: '显示已隐藏' }).click()
+    await expect(modelList.getByText('claude-sonnet-4-5', { exact: true })).toBeVisible()
+    await expect(modelList.getByText('已隐藏', { exact: true })).toBeVisible()
+    await win.screenshot({ path: 'out/model-hidden.png' })
+
+    await win.getByRole('button', { name: '显示 Provider A / claude-sonnet-4-5 条目' }).click()
+    await expect.poll(() => modelIds(), { timeout: 10_000 }).toEqual(['claude-sonnet-4-5', 'plain-model'])
+  } finally {
+    await app?.close()
+    rmSync(dataDir, { recursive: true, force: true })
+  }
+})
 
 test('edits model metadata and restores the automatic value', async () => {
   const dataDir = mkdtempSync(join(tmpdir(), 'tokenhub-e2e-meta-'))

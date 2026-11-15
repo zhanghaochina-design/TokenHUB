@@ -224,7 +224,14 @@ export class Hub {
       settings: { ...this.config.settings },
       providers: this.config.providers.map((provider) => ({
         ...provider,
-        models: { ...provider.models, cached: [...provider.models.cached], manual: [...provider.models.manual] },
+        models: {
+          ...provider.models,
+          cached: [...provider.models.cached],
+          manual: [...provider.models.manual],
+          hidden: provider.models.hidden ? [...provider.models.hidden] : [],
+          scanHidden: provider.models.scanHidden ? [...provider.models.scanHidden] : [],
+          shown: provider.models.shown ? [...provider.models.shown] : []
+        },
         protocolSupport: provider.protocolSupport
           ? Object.fromEntries(
               Object.entries(provider.protocolSupport).map(([model, support]) => [model, { ...support }])
@@ -408,6 +415,27 @@ export class Hub {
     this.emit()
   }
 
+  // 展示层隐藏：不改 catalog、不重建路由，只影响模型页与 /v1/models。
+  async setModelHidden(providerId: string, upstreamModel: string, hidden: boolean): Promise<void> {
+    const provider = this.requireProvider(providerId)
+    const model = upstreamModel.trim()
+    if (!model) throw new Error('model is required')
+    const next = new Set(provider.models.hidden ?? [])
+    if (hidden) {
+      next.add(model)
+      // 手动隐藏优先于扫描自动隐藏的显式恢复记录。
+      provider.models.shown = (provider.models.shown ?? []).filter((candidate) => candidate !== model)
+    } else {
+      next.delete(model)
+      if ((provider.models.scanHidden ?? []).includes(model)) {
+        provider.models.shown = [...new Set([...(provider.models.shown ?? []), model])].sort()
+      }
+    }
+    provider.models.hidden = [...next].sort()
+    await this.persistConfig()
+    this.emit()
+  }
+
   async deleteModelAlias(id: string): Promise<void> {
     if (!this.config.modelAliases.some((alias) => alias.id === id)) throw new Error(`unknown model alias: ${id}`)
     this.config.modelAliases = this.config.modelAliases.filter((alias) => alias.id !== id)
@@ -498,6 +526,14 @@ export class Hub {
           support[row.model] = { anthropic: row.anthropic, openai: row.openai, checkedAt: row.checkedAt }
         }
         provider.protocolSupport = support
+        // 两端都明确不通才自动隐藏；任一入口恢复即自动显示；null（超时/限流）保持原状。
+        const scanHidden = new Set(provider.models.scanHidden ?? [])
+        for (const row of outcome.rows) {
+          if (row.anthropic === false && row.openai === false) scanHidden.add(row.model)
+          else if (row.anthropic === true || row.openai === true) scanHidden.delete(row.model)
+        }
+        provider.models.scanHidden = [...scanHidden].sort()
+        provider.models.shown = (provider.models.shown ?? []).filter((model) => scanHidden.has(model))
         await this.persistConfig()
       }
       return { providerId: provider.id, providerName: provider.name, rows: outcome.rows, error: outcome.error }

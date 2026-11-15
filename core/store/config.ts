@@ -86,6 +86,11 @@ function normalizeProtocolSupport(raw: unknown): Record<string, ModelProtocolSup
   return Object.keys(out).length > 0 ? out : undefined
 }
 
+function normalizeModelList(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return []
+  return [...new Set(raw.map((model) => String(model).trim()).filter(Boolean))]
+}
+
 function normalizeModelMetaRecord(raw: unknown): Record<string, ModelMeta> | undefined {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined
   const out: Record<string, ModelMeta> = {}
@@ -114,6 +119,9 @@ function normalizeProvider(raw: unknown): ProviderConfig {
     models: {
       cached: Array.isArray(p.models?.cached) ? p.models.cached.map(String) : [],
       manual: Array.isArray(p.models?.manual) ? p.models.manual.map(String) : [],
+      hidden: normalizeModelList(p.models?.hidden),
+      scanHidden: normalizeModelList(p.models?.scanHidden),
+      shown: normalizeModelList(p.models?.shown),
       lastSyncedAt: p.models?.lastSyncedAt ?? null
     },
     protocolSupport: normalizeProtocolSupport(p.protocolSupport),

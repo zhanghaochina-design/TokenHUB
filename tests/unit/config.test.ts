@@ -103,6 +103,31 @@ describe('config store', () => {
     })
   })
 
+  it('normalizes per-model visibility lists', () => {
+    const cfg = normalizeConfig({
+      providers: [
+        {
+          id: 'p1',
+          name: 'P1',
+          preset: 'custom',
+          baseUrl: 'https://p1.example/v1',
+          models: {
+            cached: ['m'],
+            manual: [],
+            hidden: [' m ', 'm', ''],
+            scanHidden: ['s'],
+            shown: ['x', 'x']
+          }
+        }
+      ]
+    })
+    expect(cfg.providers[0].models).toMatchObject({
+      hidden: ['m'],
+      scanHidden: ['s'],
+      shown: ['x']
+    })
+  })
+
   it('normalizes the optional Anthropic base url', () => {
     const cfg = normalizeConfig({
       providers: [

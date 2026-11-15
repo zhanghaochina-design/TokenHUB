@@ -15,6 +15,7 @@ const api: TokenHubApi = {
   saveModelAlias: (alias, previousId) => ipcRenderer.invoke('tokenhub:saveModelAlias', alias, previousId),
   deleteModelAlias: (id) => ipcRenderer.invoke('tokenhub:deleteModelAlias', id),
   saveModelMeta: (providerId, upstreamModel, meta) => ipcRenderer.invoke('tokenhub:saveModelMeta', providerId, upstreamModel, meta),
+  setModelHidden: (providerId, upstreamModel, hidden) => ipcRenderer.invoke('tokenhub:setModelHidden', providerId, upstreamModel, hidden),
   updateSettings: (patch) => ipcRenderer.invoke('tokenhub:updateSettings', patch),
   setLocalKey: (key) => ipcRenderer.invoke('tokenhub:setLocalKey', key),
   setPaused: (paused) => ipcRenderer.invoke('tokenhub:setPaused', paused),

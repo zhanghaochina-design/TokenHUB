@@ -117,7 +117,7 @@ export function createProviderFromPreset(preset: Preset, id: string = crypto.ran
     quotaAdapter: found?.quotaAdapter ?? 'none',
     enabled: true,
     maxConcurrency: defaultMaxConcurrency(preset),
-    models: { cached: [], manual: [], lastSyncedAt: null },
+    models: { cached: [], manual: [], hidden: [], scanHidden: [], shown: [], lastSyncedAt: null },
     quota: { lowBalanceThreshold: 0.5, quotaCooldownMs: 5 * 60 * 60 * 1000, injectStreamUsage: true }
   }
 }

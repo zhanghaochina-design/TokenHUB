@@ -38,6 +38,9 @@ export function registerIpc(
   ipcMain.handle('tokenhub:saveModelMeta', (_e, providerId: string, upstreamModel: string, meta: ModelMeta | null) =>
     hub.saveModelMeta(providerId, upstreamModel, meta)
   )
+  ipcMain.handle('tokenhub:setModelHidden', (_e, providerId: string, upstreamModel: string, hidden: boolean) =>
+    hub.setModelHidden(providerId, upstreamModel, hidden)
+  )
   ipcMain.handle('tokenhub:setLocalKey', (_e, key: string | null) => hub.setLocalKey(key))
   ipcMain.handle('tokenhub:setPaused', (_e, paused: boolean) => hub.setPaused(paused))
   ipcMain.handle('tokenhub:getHistory', (_e, day: string, limit?: number) => hub.getHistory(day, limit))

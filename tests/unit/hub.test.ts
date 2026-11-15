@@ -124,6 +124,57 @@ describe('Hub', () => {
     await hub.shutdown()
   })
 
+  it('auto-hides models whose protocol probes both explicitly fail', async () => {
+    let bothFail = true
+    const fetchFn: FakeFetch = async (url) => {
+      const href = String(url)
+      if (href.endsWith('/models')) {
+        return new Response(JSON.stringify({ data: [{ id: 'm1' }, { id: 'm2' }] }), { status: 200 })
+      }
+      if (href.endsWith('/messages') || href.endsWith('/chat/completions')) {
+        return new Response('{}', { status: bothFail ? 404 : 200 })
+      }
+      return new Response('{}', { status: 200 })
+    }
+    const { hub } = await boot({ fetchFn })
+    await hub.addProvider({ preset: 'custom', name: 'P', baseUrl: 'https://p.example/v1', apiKey: 'sk' })
+    const providerId = hub.getState().providers[0].id
+
+    await hub.scanProviderProtocols(providerId)
+    expect(hub.getState().providers[0].models.scanHidden).toEqual(['m1', 'm2'])
+    expect(hub.getState().providers[0].protocolSupport?.m1).toMatchObject({ anthropic: false, openai: false })
+
+    // 用户手动恢复一个；重扫仍失败时保留手动选择。
+    await hub.setModelHidden(providerId, 'm1', false)
+    expect(hub.getState().providers[0].models.shown).toEqual(['m1'])
+    await hub.scanProviderProtocols(providerId)
+    expect(hub.getState().providers[0].models.shown).toEqual(['m1'])
+
+    // 任一端恢复后自动重新显示，并清掉不再需要的恢复记录。
+    bothFail = false
+    await hub.scanProviderProtocols(providerId)
+    expect(hub.getState().providers[0].models.scanHidden).toEqual([])
+    expect(hub.getState().providers[0].models.shown).toEqual([])
+    await hub.shutdown()
+  })
+
+  it('persists manual visibility changes without rebuilding routing', async () => {
+    const { hub, dir } = await boot()
+    await hub.addProvider({ preset: 'custom', name: 'P', baseUrl: 'https://p.example/v1', apiKey: 'sk' })
+    const providerId = hub.getState().providers[0].id
+    const routingCatalog = hub.getState().catalog
+
+    await hub.setModelHidden(providerId, 'm1', true)
+    expect(hub.getState().providers[0].models.hidden).toEqual(['m1'])
+    expect(hub.getState().catalog).toEqual(routingCatalog)
+
+    const saved = JSON.parse(await readFile(join(dir, 'config.json'), 'utf8')) as {
+      providers: Array<{ models: { hidden?: string[] } }>
+    }
+    expect(saved.providers[0].models.hidden).toEqual(['m1'])
+    await hub.shutdown()
+  })
+
   it('exposes per-provider concurrency slots in state', async () => {
     const { hub } = await boot()
     await hub.addProvider({ preset: 'opencode-go', name: 'Go', baseUrl: 'https://opencode.ai/zen/go/v1', apiKey: 'sk-1' })

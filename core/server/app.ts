@@ -16,6 +16,7 @@ import { anthropicError, anthropicErrorType, errorForProtocol, openAIError, prot
 import { providedKey, safeEqual } from './auth'
 import { forwardAnthropic, forwardOpenAI, type ForwardOutcome } from './forward'
 import { protocolSupported, providerConcurrencyLimit, upstreamExtraHeaders, upstreamProtocol } from '../providers/presets'
+import { listedCatalog } from '../providers/catalog'
 import { ProviderGate } from './gate'
 import { APP_NAME, MAX_BODY_BYTES } from '../appInfo'
 import { anthropicToOpenAI, countTokens, openAIToAnthropicResponse } from '../protocol/anthropic'
@@ -287,7 +288,8 @@ export function createApp(deps: AppDeps): Hono {
 
   // 能力字段是增量扩展：标准客户端会忽略，Agent 可据此选择上下文/视觉/思考档位。
   app.get('/v1/models', (c) => {
-    const catalog = deps.getCatalog()
+    // 只过滤本地列表；catalog 原样保留，按统一 ID 或 providerId/原始ID 调用仍可路由到隐藏目标。
+    const catalog = listedCatalog(deps.getCatalog(), deps.getConfig().providers)
     const capabilities = (model: MergedModel) => ({
       context_length: model.meta.contextLength,
       capabilities: { vision: model.meta.vision, thinking: model.meta.thinking }

@@ -24,6 +24,34 @@ function provider(): ProviderConfig {
   return p
 }
 
+describe('/v1/models local listing', () => {
+  it('omits models whose targets are all hidden', async () => {
+    const visibleProvider = provider()
+    visibleProvider.models.hidden = ['plain-model']
+    const config: AppConfig = { version: 1, providers: [visibleProvider], modelAliases: [], settings }
+    const server = await startServer(
+      {
+        getConfig: () => config,
+        getProviderKey: () => 'sk',
+        getLocalApiKey: () => null,
+        getCatalog: () => buildCatalog(config.providers, config.modelAliases),
+        runtime: new RuntimeStore(),
+        history: { append: async () => {} },
+        isPaused: () => false
+      },
+      0
+    )
+    try {
+      const body = (await (await fetch(`http://127.0.0.1:${server.port}/v1/models`)).json()) as {
+        data: Array<{ id: string }>
+      }
+      expect(body.data.map((model) => model.id)).toEqual(['claude-sonnet-4-5'])
+    } finally {
+      await server.close()
+    }
+  })
+})
+
 describe('/v1/models capability metadata', () => {
   it('appends context length and capabilities to both protocol shapes', async () => {
     const config: AppConfig = { version: 1, providers: [provider()], modelAliases: [], settings }

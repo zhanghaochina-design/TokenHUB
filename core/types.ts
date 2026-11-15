@@ -63,7 +63,16 @@ export interface ProviderConfig {
   enabled: boolean
   // 同时发往该上游的最大请求数；0 表示不限。槽位持有到响应体结束，满员时路由按优先级转下一家。
   maxConcurrency?: number
-  models: { cached: string[]; manual: string[]; lastSyncedAt: string | null }
+  // hidden/scanHidden/shown 只影响模型页与 /v1/models 的展示，不改变路由与故障切换。
+  // 生效隐藏 = (hidden ∪ scanHidden) − shown；shown 记录用户对自动隐藏的显式恢复。
+  models: {
+    cached: string[]
+    manual: string[]
+    hidden?: string[]
+    scanHidden?: string[]
+    shown?: string[]
+    lastSyncedAt: string | null
+  }
   // 键为上游模型 ID；缺失表示尚未扫描，路由回退到预设默认。
   protocolSupport?: Record<string, ModelProtocolSupport>
   // 键为上游模型 ID；只存手动覆盖，未命中时回退发现值、再回退内置建议表。

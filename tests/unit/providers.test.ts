@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { APP_VERSION } from '../../core/appInfo'
 import { PROVIDER_PRESETS, anthropicBaseUrlFor, createProviderFromPreset, defaultAnthropicBaseUrl, defaultMaxConcurrency, providerConcurrencyLimit, protocolSupported, upstreamExtraHeaders, upstreamProtocol } from '../../core/providers/presets'
-import { buildCatalog, parseRequestedModel, providerSupports } from '../../core/providers/catalog'
+import { buildCatalog, isTargetHidden, listedCatalog, parseRequestedModel, providerSupports } from '../../core/providers/catalog'
 import { discoverModels, modelMetaFromUpstream } from '../../core/providers/discover'
+import { resolveCandidates } from '../../core/router/router'
+import { RuntimeStore } from '../../core/router/runtime'
 
 describe('presets', () => {
   it('ships the three providers with correct endpoints', () => {
@@ -151,7 +153,14 @@ describe('catalog', () => {
   const p = (id: string, models: string[], enabled = true) => ({
     ...createProviderFromPreset('custom', id),
     enabled,
-    models: { cached: models, manual: [] as string[], lastSyncedAt: null }
+    models: {
+      cached: models,
+      manual: [] as string[],
+      hidden: [] as string[],
+      scanHidden: [] as string[],
+      shown: [] as string[],
+      lastSyncedAt: null
+    }
   })
   // 本组只关心路由与合并；能力元数据另有 modelMeta 测试覆盖。
   const withoutMeta = (models: ReturnType<typeof buildCatalog>) =>
@@ -259,6 +268,45 @@ describe('catalog', () => {
         isAlias: true
       }
     ])
+  })
+
+  it('hides targets from the local listing without affecting routing', () => {
+    const provider = p('a', ['m1', 'm2'])
+    provider.models.scanHidden = ['m2']
+    const catalog = buildCatalog([provider])
+    expect(listedCatalog(catalog, [provider]).map((model) => model.id)).toEqual(['m1'])
+    expect(isTargetHidden(provider, 'm2')).toBe(true)
+    expect(providerSupports(provider, 'm2')).toBe(true)
+
+    provider.models.shown = ['m2']
+    expect(isTargetHidden(provider, 'm2')).toBe(false)
+    expect(listedCatalog(catalog, [provider]).map((model) => model.id)).toEqual(['m1', 'm2'])
+
+    // 隐藏只影响展示：隐藏期间按统一 ID 仍可正常解析路由。
+    provider.models.shown = []
+    const resolution = resolveCandidates({
+      requestedModel: 'm2',
+      providers: [provider],
+      catalog,
+      runtime: new RuntimeStore()
+    })
+    expect(resolution.modelKnown).toBe(true)
+    expect(resolution.candidates.map((candidate) => candidate.upstreamModel)).toEqual(['m2'])
+
+    provider.models.hidden = ['m1']
+    provider.models.scanHidden = []
+    expect(listedCatalog(catalog, [provider]).map((model) => model.id)).toEqual(['m2'])
+    expect(catalog.map((model) => model.id)).toEqual(['m1', 'm2'])
+  })
+
+  it('drops a merged model only when every target is hidden', () => {
+    const a = p('a', ['m'])
+    const b = p('b', ['m'])
+    a.models.hidden = ['m']
+    const catalog = buildCatalog([a, b])
+    expect(listedCatalog(catalog, [a, b]).map((model) => model.id)).toEqual(['m'])
+    b.models.hidden = ['m']
+    expect(listedCatalog(catalog, [a, b])).toEqual([])
   })
 
   it('only treats a slash as provider pin when prefix is a known id', () => {

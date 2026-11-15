@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Activity, Boxes, Link2, Pencil, Plus, RefreshCw, Search, SearchX, SlidersHorizontal, Sparkles, Trash2, X } from 'lucide-react'
-import type { AppState, EffectiveModelMeta, ModelAlias, ModelProtocolSupport, ProviderRuntime, ProtocolScanResult } from '../../core/types'
+import { Activity, Boxes, Eye, EyeOff, Link2, Pencil, Plus, RefreshCw, Search, SearchX, SlidersHorizontal, Sparkles, Trash2, X } from 'lucide-react'
+import type { AppState, EffectiveModelMeta, ModelAlias, MergedModelTarget, ModelProtocolSupport, ProviderRuntime, ProtocolScanResult } from '../../core/types'
 import { suggestModelAliases } from '../../core/providers/aliases'
-import { effectiveModelMeta } from '../../core/providers/modelMeta'
+import { isTargetHidden, listedCatalog } from '../../core/providers/catalog'
+import { aggregateModelMeta, effectiveModelMeta } from '../../core/providers/modelMeta'
 import { ModelAliasDialog } from '../components/ModelAliasDialog'
 import { ModelMetaDialog } from '../components/ModelMetaDialog'
 import { ProtocolScanDialog } from '../components/ProtocolScanDialog'
@@ -130,6 +131,7 @@ export function ModelsPage({ state, onOpenProviders }: ModelsPageProps) {
   const [aliasEditor, setAliasEditor] = useState<{ initial: ModelAlias | null } | null>(null)
   const [scanResults, setScanResults] = useState<ProtocolScanResult | null>(null)
   const [metaEditor, setMetaEditor] = useState<{ providerId: string; upstreamModel: string } | null>(null)
+  const [showHidden, setShowHidden] = useState(false)
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 30_000)
@@ -155,16 +157,34 @@ export function ModelsPage({ state, onOpenProviders }: ModelsPageProps) {
   const suggestions = useMemo(() => suggestModelAliases(state.providers, aliases), [state.providers, aliases])
 
   const normalizedQuery = query.trim().toLowerCase()
+  const displayModels = useMemo(
+    () => (showHidden ? state.catalog : listedCatalog(state.catalog, state.providers)),
+    [state.catalog, state.providers, showHidden]
+  )
+  const hiddenCount = useMemo(
+    () =>
+      state.catalog.reduce(
+        (count, model) =>
+          count +
+          model.targets.filter((target) => isTargetHidden(providerById.get(target.providerId), target.upstreamModel)).length,
+        0
+      ),
+    [state.catalog, providerById]
+  )
   const filtered = useMemo(
     () =>
       normalizedQuery
-        ? state.catalog.filter(
+        ? displayModels.filter(
             (model) =>
               model.id.toLowerCase().includes(normalizedQuery) ||
-              model.targets.some((target) => target.upstreamModel.toLowerCase().includes(normalizedQuery))
+              model.targets.some(
+                (target) =>
+                  (showHidden || !isTargetHidden(providerById.get(target.providerId), target.upstreamModel)) &&
+                  target.upstreamModel.toLowerCase().includes(normalizedQuery)
+              )
           )
-        : state.catalog,
-    [state.catalog, normalizedQuery]
+        : displayModels,
+    [displayModels, normalizedQuery, providerById, showHidden]
   )
 
   const enabledProviders = state.providers.filter((provider) => provider.enabled).length
@@ -172,6 +192,14 @@ export function ModelsPage({ state, onOpenProviders }: ModelsPageProps) {
 
   function providerName(providerId: string): string {
     return providerById.get(providerId)?.name ?? providerId
+  }
+
+  async function handleToggleHidden(providerId: string, upstreamModel: string, hidden: boolean) {
+    try {
+      await window.tokenhub.setModelHidden(providerId, upstreamModel, hidden)
+    } catch (error) {
+      setToast(`更新模型可见性失败：${errorMessage(error)}`)
+    }
   }
 
   async function handleRefreshAll() {
@@ -204,7 +232,10 @@ export function ModelsPage({ state, onOpenProviders }: ModelsPageProps) {
       } else {
         const messagesOk = result.rows.filter((row) => row.anthropic === true).length
         const chatOk = result.rows.filter((row) => row.openai === true).length
-        setToast(`扫描完成：${result.rows.length} 个模型，Messages ${messagesOk} 个可用，Chat ${chatOk} 个可用`)
+        const autoHidden = result.rows.filter((row) => row.anthropic === false && row.openai === false).length
+        setToast(
+          `扫描完成：${result.rows.length} 个模型，Messages ${messagesOk} 个可用，Chat ${chatOk} 个可用${autoHidden > 0 ? `，自动隐藏 ${autoHidden} 个` : ''}`
+        )
       }
     } catch (error) {
       setToast(`扫描失败：${errorMessage(error)}`)
@@ -486,76 +517,135 @@ export function ModelsPage({ state, onOpenProviders }: ModelsPageProps) {
                 </button>
               )}
             </div>
-            <p className="text-xs tabular-nums text-muted" aria-live="polite">
-              显示 {filtered.length} / {state.catalog.length}
-            </p>
+            <div className="flex items-center gap-3">
+              <p className="text-xs tabular-nums text-muted" aria-live="polite">
+                显示 {filtered.length} / {displayModels.length}
+                {hiddenCount > 0 && ` · 已隐藏 ${hiddenCount}`}
+              </p>
+              <button
+                type="button"
+                aria-pressed={showHidden}
+                onClick={() => setShowHidden((current) => !current)}
+                className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-line bg-surface px-3 text-xs font-medium text-ink transition-colors hover:bg-neutral-50"
+              >
+                {showHidden ? <EyeOff className="size-3.5" aria-hidden="true" /> : <Eye className="size-3.5" aria-hidden="true" />}
+                {showHidden ? '收起隐藏项' : '显示已隐藏'}
+              </button>
+            </div>
           </div>
 
           {filtered.length === 0 ? (
-            <div className="px-6 py-14 text-center">
-              <span className="mx-auto flex size-10 items-center justify-center rounded-full bg-canvas text-muted">
-                <SearchX className="size-4" aria-hidden="true" />
-              </span>
-              <p className="mt-3 text-sm font-medium text-ink">没有匹配的模型</p>
-              <p className="mt-1 text-sm text-muted">未找到包含「{query.trim()}」的模型 ID。</p>
-              <button
-                type="button"
-                onClick={() => setQuery('')}
-                className="mt-4 inline-flex h-9 items-center rounded-lg border border-line bg-surface px-3 text-sm font-medium text-ink transition-colors hover:bg-neutral-50"
-              >
-                清除搜索
-              </button>
-            </div>
+            normalizedQuery ? (
+              <div className="px-6 py-14 text-center">
+                <span className="mx-auto flex size-10 items-center justify-center rounded-full bg-canvas text-muted">
+                  <SearchX className="size-4" aria-hidden="true" />
+                </span>
+                <p className="mt-3 text-sm font-medium text-ink">没有匹配的模型</p>
+                <p className="mt-1 text-sm text-muted">未找到包含「{query.trim()}」的模型 ID。</p>
+                <button
+                  type="button"
+                  onClick={() => setQuery('')}
+                  className="mt-4 inline-flex h-9 items-center rounded-lg border border-line bg-surface px-3 text-sm font-medium text-ink transition-colors hover:bg-neutral-50"
+                >
+                  清除搜索
+                </button>
+              </div>
+            ) : (
+              <div className="px-6 py-14 text-center">
+                <span className="mx-auto flex size-10 items-center justify-center rounded-full bg-canvas text-muted">
+                  <EyeOff className="size-4" aria-hidden="true" />
+                </span>
+                <p className="mt-3 text-sm font-medium text-ink">所有模型都已隐藏</p>
+                <p className="mt-1 text-sm text-muted">本地列表当前为空；打开「显示已隐藏」可逐条恢复。</p>
+                <button
+                  type="button"
+                  onClick={() => setShowHidden(true)}
+                  className="mt-4 inline-flex h-9 items-center rounded-lg border border-line bg-surface px-3 text-sm font-medium text-ink transition-colors hover:bg-neutral-50"
+                >
+                  显示已隐藏
+                </button>
+              </div>
+            )
           ) : (
             <ul aria-label="模型列表" className="m-0 list-none divide-y divide-line p-0">
-              {filtered.map((model) => (
-                <li
-                  key={model.id}
-                  className="flex items-start justify-between gap-4 px-4 py-3 transition-colors hover:bg-neutral-50/80"
-                  title={model.targets
-                    .map((target) => {
-                      const provider = providerById.get(target.providerId)
-                      if (!provider) return `${target.providerId}: ${target.upstreamModel}`
-                      return `${provider.name}: ${target.upstreamModel}（${describeMeta(effectiveModelMeta(provider, target.upstreamModel))}）`
-                    })
-                    .join('\n')}
-                >
-                  <span className="flex min-w-0 flex-1 flex-col gap-1">
-                    <span className="flex min-w-0 flex-wrap items-center gap-2">
-                      <span className="break-all font-mono text-[13px] leading-5 text-ink">{model.id}</span>
-                      {model.isAlias && <span className="rounded bg-accent/10 px-1.5 py-0.5 text-[11px] font-medium text-accent">统一</span>}
-                    </span>
-                    <MetaBadges meta={model.meta} />
-                  </span>
-                  <span className="flex shrink-0 flex-wrap justify-end gap-1.5">
-                    {model.targets.map((target) => {
-                      const provider = providerById.get(target.providerId)
-                      return (
-                        <span key={target.providerId} className="inline-flex items-center gap-1">
-                          <ProviderBadge
-                            providerId={target.providerId}
-                            name={provider?.name ?? null}
-                            runtime={runtimeById.get(target.providerId)}
-                            enabled={provider?.enabled ?? true}
-                            now={now}
-                          />
-                          <ProtocolBadges support={provider?.protocolSupport?.[target.upstreamModel]} />
-                          <button
-                            type="button"
-                            aria-label={`编辑 ${provider?.name ?? target.providerId} / ${target.upstreamModel} 元数据`}
-                            title="编辑上下文、视觉与思考参数"
-                            disabled={!provider}
-                            onClick={() => setMetaEditor({ providerId: target.providerId, upstreamModel: target.upstreamModel })}
-                            className="flex size-6 items-center justify-center rounded border border-line bg-surface text-muted transition-colors hover:bg-neutral-50 hover:text-ink disabled:cursor-not-allowed disabled:opacity-40"
-                          >
-                            <SlidersHorizontal className="size-3" aria-hidden="true" />
-                          </button>
-                        </span>
+              {filtered.map((model) => {
+                const targets = showHidden
+                  ? model.targets
+                  : model.targets.filter((target) => !isTargetHidden(providerById.get(target.providerId), target.upstreamModel))
+                const rowHidden = model.targets.every((target) =>
+                  isTargetHidden(providerById.get(target.providerId), target.upstreamModel)
+                )
+                const shownMeta =
+                  targets.length === model.targets.length
+                    ? model.meta
+                    : aggregateModelMeta(
+                        targets.flatMap((target) => {
+                          const provider = providerById.get(target.providerId)
+                          return provider ? [effectiveModelMeta(provider, target.upstreamModel)] : []
+                        })
                       )
-                    })}
-                  </span>
-                </li>
-              ))}
+                return (
+                  <li
+                    key={model.id}
+                    className={`flex items-start justify-between gap-4 px-4 py-3 transition-colors hover:bg-neutral-50/80 ${rowHidden ? 'opacity-60' : ''}`}
+                    title={model.targets
+                      .map((target) => {
+                        const provider = providerById.get(target.providerId)
+                        const hidden = isTargetHidden(provider, target.upstreamModel)
+                        if (!provider) return `${target.providerId}: ${target.upstreamModel}${hidden ? '（已隐藏）' : ''}`
+                        return `${provider.name}: ${target.upstreamModel}${hidden ? '（已隐藏）' : ''}（${describeMeta(effectiveModelMeta(provider, target.upstreamModel))}）`
+                      })
+                      .join('\n')}
+                  >
+                    <span className="flex min-w-0 flex-1 flex-col gap-1">
+                      <span className="flex min-w-0 flex-wrap items-center gap-2">
+                        <span className="break-all font-mono text-[13px] leading-5 text-ink">{model.id}</span>
+                        {model.isAlias && <span className="rounded bg-accent/10 px-1.5 py-0.5 text-[11px] font-medium text-accent">统一</span>}
+                        {rowHidden && <span className="rounded border border-dashed border-line bg-surface px-1.5 py-0.5 text-[10px] text-muted">已隐藏</span>}
+                      </span>
+                      <MetaBadges meta={shownMeta} />
+                    </span>
+                    <span className="flex shrink-0 flex-wrap justify-end gap-1.5">
+                      {targets.map((target) => {
+                        const provider = providerById.get(target.providerId)
+                        const hidden = isTargetHidden(provider, target.upstreamModel)
+                        return (
+                          <span key={target.providerId} className={`inline-flex items-center gap-1 ${hidden ? 'opacity-50' : ''}`}>
+                            <ProviderBadge
+                              providerId={target.providerId}
+                              name={provider?.name ?? null}
+                              runtime={runtimeById.get(target.providerId)}
+                              enabled={provider?.enabled ?? true}
+                              now={now}
+                            />
+                            <ProtocolBadges support={provider?.protocolSupport?.[target.upstreamModel]} />
+                            <button
+                              type="button"
+                              aria-label={`编辑 ${provider?.name ?? target.providerId} / ${target.upstreamModel} 元数据`}
+                              title="编辑上下文、视觉与思考参数"
+                              disabled={!provider}
+                              onClick={() => setMetaEditor({ providerId: target.providerId, upstreamModel: target.upstreamModel })}
+                              className="flex size-6 items-center justify-center rounded border border-line bg-surface text-muted transition-colors hover:bg-neutral-50 hover:text-ink disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                              <SlidersHorizontal className="size-3" aria-hidden="true" />
+                            </button>
+                            <button
+                              type="button"
+                              aria-label={`${hidden ? '显示' : '隐藏'} ${provider?.name ?? target.providerId} / ${target.upstreamModel} 条目`}
+                              title={hidden ? '在本地列表中显示' : '从本地列表隐藏（仍可调用）'}
+                              disabled={!provider}
+                              onClick={() => void handleToggleHidden(target.providerId, target.upstreamModel, !hidden)}
+                              className="flex size-6 items-center justify-center rounded border border-line bg-surface text-muted transition-colors hover:bg-neutral-50 hover:text-ink disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                              {hidden ? <EyeOff className="size-3" aria-hidden="true" /> : <Eye className="size-3" aria-hidden="true" />}
+                            </button>
+                          </span>
+                        )
+                      })}
+                    </span>
+                  </li>
+                )
+              })}
             </ul>
           )}
         </section>
