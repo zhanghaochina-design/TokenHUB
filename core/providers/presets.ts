@@ -74,16 +74,23 @@ export function defaultAnthropicBaseUrl(preset: Preset, baseUrl: string): string
   return preset === 'deepseek' ? (deepseekAnthropicBase(baseUrl.trim().replace(/\/+$/, '')) ?? '') : ''
 }
 
-/** 能力表未覆盖时回退到预设默认；null 表示无法判定。 */
+/**
+ * 解析入口能力。扫描结果 true/false 优先；扫描为 null（超时/限流/权限拒绝）时，
+ * 用上游模型列表声明的入口兜底，再回退预设默认；null 只在两者都无信息时保留。
+ */
 export function protocolSupported(
   preset: Preset,
   model: string,
   protocol: Protocol,
-  support?: SupportState
+  support?: SupportState,
+  discovered?: SupportState
 ): boolean | null {
-  const defaults = defaultProtocolSupport(preset, model)
   const scanned = support?.[protocol]
-  return scanned !== undefined ? scanned : defaults[protocol]
+  if (scanned === true || scanned === false) return scanned
+  const advertised = discovered?.[protocol]
+  if (advertised === true || advertised === false) return advertised
+  if (scanned === null) return null
+  return defaultProtocolSupport(preset, model)[protocol]
 }
 
 /** 优先使用与客户端一致的上游形状；能力表明确不支持时改用另一形状。 */
@@ -91,11 +98,12 @@ export function upstreamProtocol(
   preset: Preset,
   model: string,
   clientProtocol: Protocol,
-  support?: SupportState
+  support?: SupportState,
+  discovered?: SupportState
 ): Protocol {
   const other: Protocol = clientProtocol === 'openai' ? 'anthropic' : 'openai'
-  const preferred = protocolSupported(preset, model, clientProtocol, support)
-  const alternate = protocolSupported(preset, model, other, support)
+  const preferred = protocolSupported(preset, model, clientProtocol, support, discovered)
+  const alternate = protocolSupported(preset, model, other, support, discovered)
   if (preferred === true) return clientProtocol
   if (preferred === false) return alternate === false ? clientProtocol : other
   return alternate === true ? other : clientProtocol

@@ -1,6 +1,6 @@
 import { rename } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { AppConfig, ModelAlias, ModelMeta, ModelProtocolSupport, ProviderConfig } from '../types'
+import type { AppConfig, ModelAlias, ModelEndpointSupport, ModelMeta, ModelProtocolSupport, ProviderConfig } from '../types'
 import { defaultMaxConcurrency } from '../providers/presets'
 import { normalizeModelMeta } from '../providers/modelMeta'
 import { readText, writeFileAtomic } from './fsUtil'
@@ -86,6 +86,19 @@ function normalizeProtocolSupport(raw: unknown): Record<string, ModelProtocolSup
   return Object.keys(out).length > 0 ? out : undefined
 }
 
+function normalizeEndpointDiscovery(raw: unknown): Record<string, ModelEndpointSupport> | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined
+  const out: Record<string, ModelEndpointSupport> = {}
+  for (const [model, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (!model || !value || typeof value !== 'object' || Array.isArray(value)) continue
+    const entry = value as Record<string, unknown>
+    // 只接受上游明确声明的布尔值；缺失字段不能被推断成“不支持”。
+    if (typeof entry.anthropic !== 'boolean' || typeof entry.openai !== 'boolean') continue
+    out[model] = { anthropic: entry.anthropic, openai: entry.openai }
+  }
+  return Object.keys(out).length > 0 ? out : undefined
+}
+
 function normalizeModelList(raw: unknown): string[] {
   if (!Array.isArray(raw)) return []
   return [...new Set(raw.map((model) => String(model).trim()).filter(Boolean))]
@@ -127,6 +140,7 @@ function normalizeProvider(raw: unknown): ProviderConfig {
     protocolSupport: normalizeProtocolSupport(p.protocolSupport),
     modelMeta: normalizeModelMetaRecord(p.modelMeta),
     modelDiscovery: normalizeModelMetaRecord(p.modelDiscovery),
+    endpointDiscovery: normalizeEndpointDiscovery(p.endpointDiscovery),
     quota: {
       lowBalanceThreshold: finiteValue(p.quota?.lowBalanceThreshold, 0.5, 0),
       // 冷却时长会直接参与 new Date(now + ms)，非有限值会让冷却与 UI 倒计时崩掉。

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Activity, Boxes, Eye, EyeOff, Link2, Pencil, Plus, RefreshCw, Search, SearchX, SlidersHorizontal, Sparkles, Trash2, X } from 'lucide-react'
-import type { AppState, EffectiveModelMeta, ModelAlias, MergedModelTarget, ModelProtocolSupport, ProviderRuntime, ProtocolScanResult } from '../../core/types'
+import type { AppState, EffectiveModelMeta, ModelAlias, MergedModelTarget, ModelEndpointSupport, ModelProtocolSupport, ProviderRuntime, ProtocolScanResult } from '../../core/types'
 import { suggestModelAliases } from '../../core/providers/aliases'
 import { isTargetHidden, listedCatalog } from '../../core/providers/catalog'
 import { aggregateModelMeta, effectiveModelMeta } from '../../core/providers/modelMeta'
@@ -61,27 +61,30 @@ function ProviderBadge({ providerId, name, runtime, enabled, now }: ProviderBadg
   )
 }
 
-function ProtocolBadges({ support }: { support?: ModelProtocolSupport }) {
-  if (!support) return null
+function ProtocolBadges({ support, discovered }: { support?: ModelProtocolSupport; discovered?: ModelEndpointSupport }) {
+  if (!support && !discovered) return null
   const entries = [
-    { key: 'anthropic', label: 'A', title: 'Anthropic /messages', value: support.anthropic },
-    { key: 'openai', label: 'O', title: 'OpenAI /chat/completions', value: support.openai }
+    { key: 'anthropic', label: 'A', title: 'Anthropic /messages' },
+    { key: 'openai', label: 'O', title: 'OpenAI /chat/completions' }
   ] as const
   return (
     <span className="inline-flex items-center gap-0.5">
       {entries.map((entry) => {
-        const mark = entry.value === true ? '✓' : entry.value === false ? '✗' : '?'
+        // 扫描结果优先；扫描无法判定或被拒绝时，用上游声明的入口能力兜底。
+        const value = support?.[entry.key] ?? discovered?.[entry.key] ?? null
+        const mark = value === true ? '✓' : value === false ? '✗' : '?'
         const tone =
-          entry.value === true
+          value === true
             ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
-            : entry.value === false
+            : value === false
               ? 'border-red-200 bg-red-50 text-red-700'
               : 'border-line bg-neutral-50 text-neutral-600'
-        const label = entry.value === true ? '可用' : entry.value === false ? '不支持' : '未知'
+        const label = value === true ? '支持' : value === false ? '不支持' : '未知'
+        const source = support ? formatDateTime(support.checkedAt) : '上游模型列表声明'
         return (
           <span
             key={entry.key}
-            title={`${entry.title}：${label}（${formatDateTime(support.checkedAt)}）`}
+            title={`${entry.title}：${label}（${source}）`}
             className={`rounded border px-1 py-0.5 font-mono text-[10px] leading-none ${tone}`}
           >
             {entry.label}
@@ -248,7 +251,12 @@ export function ModelsPage({ state, onOpenProviders }: ModelsPageProps) {
       .filter(([model]) => current.has(model))
       .map(([model, support]) => ({ model, ...support }))
       .sort((a, b) => a.model.localeCompare(b.model))
-    setScanResults({ providerId: provider.id, providerName: provider.name, rows })
+    setScanResults({
+      providerId: provider.id,
+      providerName: provider.name,
+      rows,
+      endpointSupport: provider.endpointDiscovery
+    })
   }
 
   async function handleSaveAlias(alias: ModelAlias, previousId?: string) {
@@ -303,14 +311,25 @@ export function ModelsPage({ state, onOpenProviders }: ModelsPageProps) {
           <ul aria-label="供应商兼容性扫描" className="m-0 list-none divide-y divide-line p-0">
             {state.providers.map((provider) => {
               const current = new Set([...provider.models.cached, ...provider.models.manual])
-              const entries = Object.entries(provider.protocolSupport ?? {})
-                .filter(([model]) => current.has(model))
-                .map(([, support]) => support)
-              const checked = entries.length
-              const messagesOk = entries.filter((entry) => entry.anthropic === true).length
-              const chatOk = entries.filter((entry) => entry.openai === true).length
+              const scanned = Object.keys(provider.protocolSupport ?? {}).filter((model) => current.has(model))
+              const resolved = [...current].map((model) => {
+                const support = provider.protocolSupport?.[model]
+                const endpoint = provider.endpointDiscovery?.[model]
+                return {
+                  anthropic: support?.anthropic ?? endpoint?.anthropic ?? null,
+                  openai: support?.openai ?? endpoint?.openai ?? null
+                }
+              })
+              const checked = scanned.length
+              const messagesOk = resolved.filter((entry) => entry.anthropic === true).length
+              const chatOk = resolved.filter((entry) => entry.openai === true).length
+              const known = resolved.some((entry) => entry.anthropic !== null || entry.openai !== null)
               const total = providerModelCount(provider)
-              const lastChecked = entries.map((entry) => entry.checkedAt).filter(Boolean).sort().at(-1)
+              const lastChecked = scanned
+                .map((model) => provider.protocolSupport?.[model]?.checkedAt)
+                .filter(Boolean)
+                .sort()
+                .at(-1)
               const isScanning = state.scan?.providerId === provider.id
               return (
                 <li key={provider.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5">
@@ -324,8 +343,10 @@ export function ModelsPage({ state, onOpenProviders }: ModelsPageProps) {
                     </div>
                     <p className="mt-0.5 text-xs text-muted">
                       {checked > 0
-                        ? `已扫描 ${checked}/${total} · Messages ${messagesOk} 可用 · Chat ${chatOk} 可用${lastChecked ? ` · 最近 ${formatDateTime(lastChecked)}` : ''}`
-                        : `尚未扫描 · ${total} 个模型`}
+                        ? `已扫描 ${checked}/${total} · Messages ${messagesOk} 支持 · Chat ${chatOk} 支持${lastChecked ? ` · 最近 ${formatDateTime(lastChecked)}` : ''}`
+                        : known
+                          ? `未扫描 · Messages ${messagesOk} 支持 · Chat ${chatOk} 支持 · ${total} 个模型`
+                          : `尚未扫描 · ${total} 个模型`}
                     </p>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
@@ -618,7 +639,10 @@ export function ModelsPage({ state, onOpenProviders }: ModelsPageProps) {
                               enabled={provider?.enabled ?? true}
                               now={now}
                             />
-                            <ProtocolBadges support={provider?.protocolSupport?.[target.upstreamModel]} />
+                            <ProtocolBadges
+                              support={provider?.protocolSupport?.[target.upstreamModel]}
+                              discovered={provider?.endpointDiscovery?.[target.upstreamModel]}
+                            />
                             <button
                               type="button"
                               aria-label={`编辑 ${provider?.name ?? target.providerId} / ${target.upstreamModel} 元数据`}

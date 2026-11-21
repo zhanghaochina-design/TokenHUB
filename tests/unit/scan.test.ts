@@ -82,6 +82,78 @@ describe('scanProviderProtocols', () => {
     expect(calls).toBe(2)
   })
 
+  it('skips endpoints the upstream model list does not advertise', async () => {
+    const calls: string[] = []
+    const fetchFn = async (url: string) => {
+      calls.push(String(url))
+      return response(200, '{}')
+    }
+    const outcome = await scanProviderProtocols({
+      provider: createProviderFromPreset('commandcode', 'c1'),
+      apiKey: 'k',
+      models: ['deepseek/deepseek-v4-pro', 'claude-fable-5'],
+      endpointSupport: {
+        'deepseek/deepseek-v4-pro': { anthropic: false, openai: true },
+        'claude-fable-5': { anthropic: true, openai: false }
+      },
+      fetchFn,
+      concurrency: 1
+    })
+
+    expect(calls).toEqual([
+      'https://api.commandcode.ai/provider/v1/chat/completions',
+      'https://api.commandcode.ai/provider/v1/messages'
+    ])
+    expect(outcome.rows).toEqual([
+      {
+        model: 'claude-fable-5',
+        anthropic: true,
+        openai: false,
+        checkedAt: expect.any(String),
+        note: 'chat: 上游模型列表未提供该入口'
+      },
+      {
+        model: 'deepseek/deepseek-v4-pro',
+        anthropic: false,
+        openai: true,
+        checkedAt: expect.any(String),
+        note: 'messages: 上游模型列表未提供该入口'
+      }
+    ])
+  })
+
+  it('stops when every advertised endpoint rejects the key', async () => {
+    let calls = 0
+    const fetchFn = async () => {
+      calls += 1
+      return response(401, '{"error":{"message":"bad key"}}')
+    }
+
+    const outcome = await scanProviderProtocols({
+      provider: createProviderFromPreset('commandcode', 'c1'),
+      apiKey: 'k',
+      models: ['a', 'b'],
+      endpointSupport: {
+        a: { anthropic: false, openai: true },
+        b: { anthropic: false, openai: true }
+      },
+      fetchFn,
+      concurrency: 1
+    })
+
+    expect(outcome.error).toContain('认证失败')
+    expect(calls).toBe(1)
+    expect(outcome.rows).toEqual([
+      {
+        model: 'a',
+        anthropic: false,
+        openai: null,
+        checkedAt: expect.any(String),
+        note: 'messages: 上游模型列表未提供该入口; chat: bad key'
+      }
+    ])
+  })
+
   it('keeps scanning after 403 and 402 responses', async () => {
     const fetchFn = async (url: string, init?: RequestInit) => {
       const model = JSON.parse(String(init?.body)).model as string

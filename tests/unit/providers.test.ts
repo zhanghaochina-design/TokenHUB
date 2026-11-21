@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { APP_VERSION } from '../../core/appInfo'
 import { PROVIDER_PRESETS, anthropicBaseUrlFor, createProviderFromPreset, defaultAnthropicBaseUrl, defaultMaxConcurrency, providerConcurrencyLimit, protocolSupported, upstreamExtraHeaders, upstreamProtocol } from '../../core/providers/presets'
 import { buildCatalog, isTargetHidden, listedCatalog, parseRequestedModel, providerSupports } from '../../core/providers/catalog'
-import { discoverModels, modelMetaFromUpstream } from '../../core/providers/discover'
+import { discoverModels, modelEndpointsFromUpstream, modelMetaFromUpstream } from '../../core/providers/discover'
 import { resolveCandidates } from '../../core/router/router'
 import { RuntimeStore } from '../../core/router/runtime'
 
@@ -100,6 +100,16 @@ describe('upstream protocol', () => {
     expect(protocolSupported('custom', 'm', 'anthropic', { anthropic: null, openai: true })).toBeNull()
   })
 
+  it('falls back to upstream endpoint declarations when a probe is indeterminate', () => {
+    const declared = { anthropic: true, openai: false }
+    const unknownAnthropic = { anthropic: null, openai: false }
+    expect(protocolSupported('commandcode', 'claude-fable-5', 'anthropic', unknownAnthropic, declared)).toBe(true)
+    expect(protocolSupported('commandcode', 'claude-fable-5', 'openai', unknownAnthropic, declared)).toBe(false)
+    expect(upstreamProtocol('commandcode', 'claude-fable-5', 'openai', unknownAnthropic, declared)).toBe('anthropic')
+    // 没有上游元数据时保持“未知”，不能拿预设默认冒充结论。
+    expect(protocolSupported('custom', 'm', 'anthropic', { anthropic: null, openai: true })).toBeNull()
+  })
+
   it('adds OpenCode session headers only for the opencode-go preset', () => {
     expect(upstreamExtraHeaders(createProviderFromPreset('opencode-go', 'p1'), 'sess-1')).toEqual({
       'x-opencode-session': 'sess-1',
@@ -133,6 +143,26 @@ describe('discoverModels', () => {
         vision: true,
         thinking: { param: 'effort', values: ['low', 'high', 'max'] }
       }
+    }])
+  })
+
+  it('maps CommandCode supported_endpoints to protocol shapes', () => {
+    expect(modelEndpointsFromUpstream({ supported_endpoints: ['/messages'] })).toEqual({ anthropic: true, openai: false })
+    expect(modelEndpointsFromUpstream({ supported_endpoints: ['/chat/completions', '/responses'] }))
+      .toEqual({ anthropic: false, openai: true })
+    expect(modelEndpointsFromUpstream({ supported_endpoints: [] })).toBeUndefined()
+    expect(modelEndpointsFromUpstream({})).toBeUndefined()
+  })
+
+  it('exposes supported endpoints from discovery', async () => {
+    const fetchFn = async () =>
+      new Response(JSON.stringify({
+        data: [{ id: 'claude-fable-5', context_length: 1_000_000, supported_endpoints: ['/messages'] }]
+      }), { status: 200 })
+    await expect(discoverModels('https://x/v1', 'k', fetchFn as never)).resolves.toEqual([{
+      id: 'claude-fable-5',
+      meta: { contextLength: 1_000_000 },
+      endpoints: { anthropic: true, openai: false }
     }])
   })
 

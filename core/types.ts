@@ -11,6 +11,12 @@ export interface ModelProtocolSupport {
   checkedAt: string
 }
 
+// 上游 /models 声明的入口能力（CommandCode 的 supported_endpoints）；只描述协议形状，不表示套餐/地区可用。
+export interface ModelEndpointSupport {
+  anthropic: boolean
+  openai: boolean
+}
+
 export interface ProtocolScanRow {
   model: string
   anthropic: boolean | null
@@ -23,6 +29,8 @@ export interface ProtocolScanResult {
   providerId: string
   providerName: string
   rows: ProtocolScanRow[]
+  // 扫描时上游声明的入口能力；探测为 null 的格子据此展示，不把权限/地区拒绝显示成未知。
+  endpointSupport?: Record<string, ModelEndpointSupport>
   error?: string
 }
 
@@ -75,6 +83,9 @@ export interface ProviderConfig {
   }
   // 键为上游模型 ID；缺失表示尚未扫描，路由回退到预设默认。
   protocolSupport?: Record<string, ModelProtocolSupport>
+  // 键为上游模型 ID；每次刷新模型时按上游 /models 的 supported_endpoints 重写。
+  // 扫描结果为 null（超时/限流/权限拒绝）时用它兜底，避免把套餐/地区限制误判成协议不支持。
+  endpointDiscovery?: Record<string, ModelEndpointSupport>
   // 键为上游模型 ID；只存手动覆盖，未命中时回退发现值、再回退内置建议表。
   modelMeta?: Record<string, ModelMeta>
   // 键为上游模型 ID；每次刷新模型时按上游 /models 响应重写，清空即表示上游未提供。

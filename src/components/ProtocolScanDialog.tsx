@@ -22,12 +22,23 @@ function statusLabel(value: boolean | null): string {
   return value === true ? '可用' : value === false ? '不支持' : '未知'
 }
 
-function StatusPill({ value }: { value: boolean | null }) {
+function StatusPill({ value, declared }: { value: boolean | null; declared: boolean }) {
+  // 带星号表示探测无法判定，按上游模型列表的入口声明展示。
   return (
-    <span className={`inline-flex rounded border px-1.5 py-0.5 text-xs ${statusTone(value)}`}>
+    <span
+      className={`inline-flex rounded border px-1.5 py-0.5 text-xs ${statusTone(value)}`}
+      title={declared ? '扫描无法判定（权限/限流/超时），按上游模型列表声明展示' : undefined}
+    >
       {statusLabel(value)}
+      {declared ? '*' : ''}
     </span>
   )
+}
+
+function resolveDisplay(probed: boolean | null, declared: boolean | undefined): { value: boolean | null; declared: boolean } {
+  return probed === null && typeof declared === 'boolean'
+    ? { value: declared, declared: true }
+    : { value: probed, declared: false }
 }
 
 export function ProtocolScanDialog({ result, onClose }: ProtocolScanDialogProps) {
@@ -44,8 +55,17 @@ export function ProtocolScanDialog({ result, onClose }: ProtocolScanDialogProps)
     }
   }, [onClose])
 
-  const messagesOk = result.rows.filter((row) => row.anthropic === true).length
-  const chatOk = result.rows.filter((row) => row.openai === true).length
+  const displayed = result.rows.map((row) => {
+    const endpoints = result.endpointSupport?.[row.model]
+    return {
+      row,
+      anthropic: resolveDisplay(row.anthropic, endpoints?.anthropic),
+      openai: resolveDisplay(row.openai, endpoints?.openai)
+    }
+  })
+  const messagesOk = displayed.filter((entry) => entry.anthropic.value === true).length
+  const chatOk = displayed.filter((entry) => entry.openai.value === true).length
+  const hasDeclared = displayed.some((entry) => entry.anthropic.declared || entry.openai.declared)
 
   return (
     <div
@@ -64,6 +84,7 @@ export function ProtocolScanDialog({ result, onClose }: ProtocolScanDialogProps)
             <h2 className="text-base font-semibold text-ink">调用方式兼容性 · {result.providerName}</h2>
             <p className="mt-1 text-xs text-muted">
               共 {result.rows.length} 个模型 · Messages 可用 {messagesOk} · Chat 可用 {chatOk}
+              {hasDeclared ? ' · * 无法判定项按上游模型列表声明展示' : ''}
               {result.error ? ` · ${result.error}` : ''}
             </p>
           </div>
@@ -89,11 +110,11 @@ export function ProtocolScanDialog({ result, onClose }: ProtocolScanDialogProps)
               </tr>
             </thead>
             <tbody className="divide-y divide-line">
-              {result.rows.map((row) => (
+              {displayed.map(({ row, anthropic, openai }) => (
                 <tr key={row.model} className="align-top">
                   <td className="break-all px-4 py-2 font-mono text-[13px] text-ink">{row.model}</td>
-                  <td className="px-4 py-2"><StatusPill value={row.anthropic} /></td>
-                  <td className="px-4 py-2"><StatusPill value={row.openai} /></td>
+                  <td className="px-4 py-2"><StatusPill value={anthropic.value} declared={anthropic.declared} /></td>
+                  <td className="px-4 py-2"><StatusPill value={openai.value} declared={openai.declared} /></td>
                   <td className="max-w-64 break-words px-4 py-2 text-xs text-muted">{row.note ?? '—'}</td>
                   <td className="whitespace-nowrap px-4 py-2 text-xs tabular-nums text-muted">{formatDateTime(row.checkedAt)}</td>
                 </tr>

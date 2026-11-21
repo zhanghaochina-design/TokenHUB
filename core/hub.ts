@@ -5,6 +5,7 @@ import type {
   HistoryRecord,
   HistorySink,
   ModelAlias,
+  ModelEndpointSupport,
   ModelMeta,
   ProtocolScanResult,
   ProviderConfig,
@@ -239,6 +240,7 @@ export class Hub {
           : undefined,
         modelMeta: provider.modelMeta ? structuredClone(provider.modelMeta) : undefined,
         modelDiscovery: provider.modelDiscovery ? structuredClone(provider.modelDiscovery) : undefined,
+        endpointDiscovery: provider.endpointDiscovery ? structuredClone(provider.endpointDiscovery) : undefined,
         quota: { ...provider.quota },
         hasKey: this.secrets?.hasProviderKey(provider.id) ?? false
       })),
@@ -498,6 +500,13 @@ export class Hub {
     if (this.scanState) throw new Error('a protocol scan is already running')
     const apiKey = this.secrets.getProviderKey(id)
     if (!apiKey) throw new Error('api key is required')
+    // 旧配置没有入口声明时先补一次模型发现，让扫描只打上游实际提供的入口；失败按无声明继续。
+    if (provider.preset === 'commandcode' && !provider.endpointDiscovery) {
+      if (await this.discoverProvider(provider)) {
+        await this.persistConfig()
+        this.rebuildCatalog()
+      }
+    }
     const models = normalizeModels([...provider.models.cached, ...provider.models.manual])
     this.scanState = { providerId: provider.id, providerName: provider.name, done: 0, total: models.length }
     this.emit()
@@ -507,6 +516,7 @@ export class Hub {
         provider,
         apiKey,
         models,
+        endpointSupport: provider.endpointDiscovery,
         fetchFn: this.fetchFn,
         now: this.now,
         onProgress: (done, total) => {
@@ -536,7 +546,13 @@ export class Hub {
         provider.models.shown = (provider.models.shown ?? []).filter((model) => scanHidden.has(model))
         await this.persistConfig()
       }
-      return { providerId: provider.id, providerName: provider.name, rows: outcome.rows, error: outcome.error }
+      return {
+        providerId: provider.id,
+        providerName: provider.name,
+        rows: outcome.rows,
+        endpointSupport: provider.endpointDiscovery ? structuredClone(provider.endpointDiscovery) : undefined,
+        error: outcome.error
+      }
     } finally {
       this.scanState = null
       this.emit()
@@ -739,8 +755,13 @@ export class Hub {
       provider.models.cached = models.map((model) => model.id)
       // 发现值整体重写：上游不再返回元数据时同步清空，避免展示过时的能力。
       const discovered: Record<string, ModelMeta> = {}
-      for (const model of models) if (model.meta) discovered[model.id] = model.meta
+      const endpoints: Record<string, ModelEndpointSupport> = {}
+      for (const model of models) {
+        if (model.meta) discovered[model.id] = model.meta
+        if (model.endpoints) endpoints[model.id] = model.endpoints
+      }
       provider.modelDiscovery = Object.keys(discovered).length > 0 ? discovered : undefined
+      provider.endpointDiscovery = Object.keys(endpoints).length > 0 ? endpoints : undefined
       provider.models.lastSyncedAt = this.now().toISOString()
       return true
     } catch (error) {

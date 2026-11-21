@@ -179,6 +179,7 @@ export function createApp(deps: AppDeps): Hono {
     if (!apiKey) return { ok: false, failure: { kind: 'auth' as const, status: 401, message: 'missing api key', retryAfterMs: null } }
     const extraHeaders = upstreamExtraHeaders(candidate.provider, sessionId)
     const support = candidate.provider.protocolSupport?.[candidate.upstreamModel]
+    const discovered = candidate.provider.endpointDiscovery?.[candidate.upstreamModel]
 
     const forward = (protocol: Protocol) => protocol === 'anthropic'
       ? forwardAnthropic({
@@ -214,7 +215,7 @@ export function createApp(deps: AppDeps): Hono {
     }
 
     try {
-      let protocol = upstreamProtocol(candidate.provider.preset, candidate.upstreamModel, clientProtocol, support)
+      let protocol = upstreamProtocol(candidate.provider.preset, candidate.upstreamModel, clientProtocol, support, discovered)
       let forwarded = await forward(protocol)
       // 仅当首选形状与客户端一致、且另一形状没有被明确判死时，才在首字节前换入口重试。
       if (
@@ -225,7 +226,7 @@ export function createApp(deps: AppDeps): Hono {
         (forwarded.failure.status >= 500 || PROTOCOL_FALLBACK_STATUSES.has(forwarded.failure.status))
       ) {
         const alternate: Protocol = protocol === 'anthropic' ? 'openai' : 'anthropic'
-        if (protocolSupported(candidate.provider.preset, candidate.upstreamModel, alternate, support) !== false) {
+        if (protocolSupported(candidate.provider.preset, candidate.upstreamModel, alternate, support, discovered) !== false) {
           const retried = await forward(alternate)
           if (retried.ok) return { ok: true as const, value: { ...retried, protocol: alternate, release } }
           if (!c.req.raw.signal.aborted) {

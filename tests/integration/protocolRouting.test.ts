@@ -4,7 +4,7 @@ import { buildCatalog } from '../../core/providers/catalog'
 import { RuntimeStore } from '../../core/router/runtime'
 import { startServer } from '../../core/server/start'
 import { startFakeUpstream, type FakeResponse } from '../helpers/fakeUpstream'
-import type { AppConfig, HistoryRecord, ModelProtocolSupport, Preset, ProviderConfig } from '../../core/types'
+import type { AppConfig, HistoryRecord, ModelEndpointSupport, ModelProtocolSupport, Preset, ProviderConfig } from '../../core/types'
 
 type Handler = Parameters<typeof startFakeUpstream>[0]
 type RecordedRequest = Awaited<ReturnType<typeof startFakeUpstream>>['requests'][number]
@@ -14,6 +14,7 @@ interface ProviderSpec {
   id: string
   models: string[]
   support?: Record<string, ModelProtocolSupport>
+  endpoints?: Record<string, ModelEndpointSupport>
   // 相对假上游的 Anthropic 专用 base，用于验证 anthropicBaseUrl 覆盖。
   anthropicBasePath?: string
 }
@@ -75,6 +76,7 @@ describe('protocol routing', () => {
       p.baseUrl = `${upstream.url}/${spec.id}/v1`
       p.models.cached = spec.models
       if (spec.support) p.protocolSupport = spec.support
+      if (spec.endpoints) p.endpointDiscovery = spec.endpoints
       if (spec.anthropicBasePath) p.anthropicBaseUrl = `${upstream.url}${spec.anthropicBasePath}`
       return p
     })
@@ -216,6 +218,39 @@ describe('protocol routing', () => {
     })
     expect(requests).toHaveLength(1)
     expect(requests[0].path).toBe('/p1/v1/chat/completions')
+  })
+
+  it('uses upstream endpoint declarations when the scan result is indeterminate', async () => {
+    const { port } = await boot(
+      (path): FakeResponse =>
+        path.endsWith('/messages')
+          ? { status: 200, body: JSON.stringify(anthropicResponse) }
+          : { status: 500, body: 'wrong endpoint' },
+      [{
+        preset: 'commandcode',
+        id: 'cc',
+        models: ['claude-fable-5'],
+        support: {
+          'claude-fable-5': { anthropic: null, openai: false, checkedAt: '2026-11-20T00:00:00.000Z' }
+        },
+        endpoints: {
+          'claude-fable-5': { anthropic: true, openai: false }
+        }
+      }]
+    )
+
+    const res = await post(port, '/v1/chat/completions', {
+      model: 'claude-fable-5',
+      max_tokens: 32,
+      messages: [{ role: 'user', content: 'ping' }]
+    })
+    expect(res.status).toBe(200)
+    expect(await res.json()).toMatchObject({
+      object: 'chat.completion',
+      choices: [{ message: { content: 'pong' } }]
+    })
+    expect(requests).toHaveLength(1)
+    expect(requests[0].path).toBe('/cc/v1/messages')
   })
 
   it('falls back to the other shape before the first byte when the preferred endpoint rejects the request', async () => {

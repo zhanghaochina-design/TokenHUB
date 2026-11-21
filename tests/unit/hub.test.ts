@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Hub } from '../../core/hub'
 import { defaultConfig } from '../../core/store/config'
+import { createProviderFromPreset } from '../../core/providers/presets'
 import { resolveCandidates } from '../../core/router/router'
 import type { CipherPort } from '../../core/store/secrets'
 
@@ -121,6 +122,80 @@ describe('Hub', () => {
     // 手动覆盖只替换指定字段，其余继续沿用发现值。
     await hub.saveModelMeta(providerId, 'm1', { contextLength: 4096 })
     expect(hub.getState().catalog[0].meta).toMatchObject({ contextLength: 4096, vision: true })
+    await hub.shutdown()
+  })
+
+  it('stores upstream endpoint declarations and only probes declared entries', async () => {
+    const probes: string[] = []
+    const fetchFn: FakeFetch = async (url) => {
+      const href = String(url)
+      if (href.endsWith('/models')) {
+        return new Response(JSON.stringify({
+          data: [
+            { id: 'claude-fable-5', supported_endpoints: ['/messages'] },
+            { id: 'deepseek/x', supported_endpoints: ['/chat/completions', '/responses'] }
+          ]
+        }), { status: 200 })
+      }
+      probes.push(new URL(href).pathname)
+      return new Response('{}', { status: 200 })
+    }
+    const { hub, dir } = await boot({ fetchFn })
+    await hub.addProvider({ preset: 'custom', name: 'P', baseUrl: 'https://p.example/v1', apiKey: 'sk' })
+    const provider = hub.getState().providers[0]
+    const declared = {
+      'claude-fable-5': { anthropic: true, openai: false },
+      'deepseek/x': { anthropic: false, openai: true }
+    }
+    expect(provider.endpointDiscovery).toEqual(declared)
+    const saved = JSON.parse(await readFile(join(dir, 'config.json'), 'utf8')) as {
+      providers: Array<{ endpointDiscovery?: Record<string, unknown> }>
+    }
+    expect(saved.providers[0].endpointDiscovery).toEqual(declared)
+
+    await hub.scanProviderProtocols(provider.id)
+    expect(probes).toEqual(['/v1/messages', '/v1/chat/completions'])
+    expect(hub.getState().providers[0].protocolSupport).toMatchObject(declared)
+    await hub.shutdown()
+  })
+
+  it('discovers endpoint declarations before the first scan when an old config lacks them', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'tokenhub-hub-'))
+    const config = defaultConfig()
+    const provider = createProviderFromPreset('commandcode', 'cc')
+    provider.name = 'CC'
+    provider.models.cached = ['claude-fable-5', 'deepseek/x']
+    provider.models.lastSyncedAt = new Date().toISOString()
+    config.providers.push(provider)
+    await writeFile(join(dir, 'config.json'), JSON.stringify(config), 'utf8')
+
+    const modelsCalls: string[] = []
+    const probes: string[] = []
+    const fetchFn: FakeFetch = async (url) => {
+      const href = String(url)
+      if (href.endsWith('/models')) {
+        modelsCalls.push(href)
+        return new Response(JSON.stringify({
+          data: [
+            { id: 'claude-fable-5', supported_endpoints: ['/messages'] },
+            { id: 'deepseek/x', supported_endpoints: ['/chat/completions'] }
+          ]
+        }), { status: 200 })
+      }
+      if (href.includes('/provider/v1/')) probes.push(new URL(href).pathname)
+      return new Response('{}', { status: 200 })
+    }
+    const { hub } = await boot({ dir, fetchFn })
+    await hub.updateProvider('cc', { apiKey: 'sk' })
+    expect(hub.getState().providers[0].endpointDiscovery).toBeUndefined()
+
+    await hub.scanProviderProtocols('cc')
+    expect(modelsCalls).toHaveLength(1)
+    expect(probes).toEqual(['/provider/v1/messages', '/provider/v1/chat/completions'])
+    expect(hub.getState().providers[0].endpointDiscovery).toEqual({
+      'claude-fable-5': { anthropic: true, openai: false },
+      'deepseek/x': { anthropic: false, openai: true }
+    })
     await hub.shutdown()
   })
 

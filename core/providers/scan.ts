@@ -1,10 +1,12 @@
 import { anthropicBaseUrlFor, upstreamExtraHeaders } from './presets'
-import type { ProtocolScanRow, ProviderConfig } from '../types'
+import type { ModelEndpointSupport, ProtocolScanRow, ProviderConfig } from '../types'
 
 export interface ScanOptions {
   provider: ProviderConfig
   apiKey: string
   models: string[]
+  // 上游声明的入口能力；未声明的入口不探测，直接记为不支持。
+  endpointSupport?: Record<string, ModelEndpointSupport>
   fetchFn?: (url: string, init?: RequestInit) => Promise<Response>
   onProgress?(done: number, total: number): void
   concurrency?: number
@@ -16,7 +18,8 @@ export interface ScanOutcome {
   error?: string
 }
 
-type EndpointState = { value: boolean | null; status: number | null; note?: string }
+// probed=false 表示按上游入口元数据跳过探测，而不是探测后无法判定。
+type EndpointState = { value: boolean | null; status: number | null; note?: string; probed: boolean }
 
 const PROBE_TIMEOUT_MS = 30_000
 const PROBE_MAX_TOKENS = 16
@@ -51,19 +54,24 @@ async function probe(
       signal: AbortSignal.timeout(PROBE_TIMEOUT_MS)
     })
     const text = await res.text().catch(() => '')
-    if (res.ok) return { value: true, status: res.status }
+    if (res.ok) return { value: true, status: res.status, probed: true }
     const note = clip(errorMessageOf(text))
     // 400/404/405/422 是明确的端点/模型不匹配；其余状态可能是瞬时故障，不能写成 false。
-    if (UNSUPPORTED_STATUSES.has(res.status)) return { value: false, status: res.status, note }
-    return { value: null, status: res.status, note }
+    if (UNSUPPORTED_STATUSES.has(res.status)) return { value: false, status: res.status, note, probed: true }
+    return { value: null, status: res.status, note, probed: true }
   } catch (error) {
-    return { value: null, status: null, note: clip(error instanceof Error ? error.message : String(error)) }
+    return { value: null, status: null, note: clip(error instanceof Error ? error.message : String(error)), probed: true }
   }
 }
 
+function notAdvertised(): EndpointState {
+  return { value: false, status: null, note: '上游模型列表未提供该入口', probed: false }
+}
+
 /**
- * 对每个模型分别探测 Anthropic `/messages` 与 OpenAI `/chat/completions`。
- * 扫描是诊断请求：不写历史、不计供应商故障；只有同一模型两端都 401（Key 无效）才提前停止，
+ * 对每个模型探测上游声明的 Anthropic `/messages` 与 OpenAI `/chat/completions`。
+ * 上游 /models 未声明的入口直接记不支持、不发请求（CommandCode 每个模型只提供一种形状）。
+ * 扫描是诊断请求：不写历史、不计供应商故障；只有实际探测的入口全部 401（Key 无效）才提前停止，
  * 403/402 只记录当前模型，避免地区限制或单模型额度问题中断整轮扫描。
  */
 export async function scanProviderProtocols(options: ScanOptions): Promise<ScanOutcome> {
@@ -99,11 +107,17 @@ export async function scanProviderProtocols(options: ScanOptions): Promise<ScanO
     while (queue.length > 0 && stopReason === null) {
       const model = queue.shift()!
       const body = { model, max_tokens: PROBE_MAX_TOKENS, messages: [{ role: 'user', content: 'Reply with OK.' }] }
-      const anthropic = await probe(`${anthropicBase}/messages`, anthropicHeaders, body, fetchFn)
-      const openai = await probe(`${openaiBase}/chat/completions`, openaiHeaders, body, fetchFn)
+      const advertised = options.endpointSupport?.[model]
+      const anthropic = advertised?.anthropic === false
+        ? notAdvertised()
+        : await probe(`${anthropicBase}/messages`, anthropicHeaders, body, fetchFn)
+      const openai = advertised?.openai === false
+        ? notAdvertised()
+        : await probe(`${openaiBase}/chat/completions`, openaiHeaders, body, fetchFn)
 
-      const keyRejected = (state: EndpointState): boolean => state.status === 401
-      if (keyRejected(anthropic) && keyRejected(openai)) {
+      // 只依据实际发出的探测判断 Key：跳过或任意一端成功都不算认证失败。
+      const probed = [anthropic, openai].filter((state) => state.probed)
+      if (probed.length > 0 && probed.every((state) => state.status === 401)) {
         stopReason = `认证失败（${model}），扫描已停止`
       }
 

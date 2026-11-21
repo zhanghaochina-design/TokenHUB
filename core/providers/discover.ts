@@ -1,4 +1,4 @@
-import type { ModelMeta } from '../types'
+import type { ModelEndpointSupport, ModelMeta } from '../types'
 
 export type FetchFn = (url: string, init?: RequestInit) => Promise<Response>
 
@@ -6,6 +6,8 @@ export interface DiscoveredModel {
   id: string
   // 上游返回的能力字段；缺失表示该上游没有提供，交给下一步（手动/内置）兜底。
   meta?: ModelMeta
+  // 上游声明该模型提供哪些请求入口；缺失表示上游未声明。
+  endpoints?: ModelEndpointSupport
 }
 
 interface RawModel {
@@ -14,8 +16,9 @@ interface RawModel {
   limit?: { context?: unknown }
   modalities?: { input?: unknown }
   capabilities?: { reasoning?: { supported?: unknown; effort?: unknown } }
-  // CommandCode：只给 context_length 与 supported_endpoints。
+  // CommandCode：context_length + supported_endpoints。
   context_length?: unknown
+  supported_endpoints?: unknown
 }
 
 function positiveNumber(value: unknown): number | null {
@@ -43,6 +46,18 @@ export function modelMetaFromUpstream(raw: RawModel): ModelMeta | undefined {
   return Object.keys(meta).length > 0 ? meta : undefined
 }
 
+/** CommandCode 的 supported_endpoints 形如 ["/chat/completions", "/responses"]；只映射网关认识的两个形状。 */
+export function modelEndpointsFromUpstream(raw: RawModel): ModelEndpointSupport | undefined {
+  if (!Array.isArray(raw.supported_endpoints)) return undefined
+  const endpoints = raw.supported_endpoints.filter((item): item is string => typeof item === 'string')
+  if (endpoints.length === 0) return undefined
+  const normalized = endpoints.map((item) => item.toLowerCase())
+  return {
+    anthropic: normalized.some((item) => item.endsWith('/messages')),
+    openai: normalized.some((item) => item.endsWith('/chat/completions'))
+  }
+}
+
 export async function discoverModels(baseUrl: string, apiKey: string, fetchFn: FetchFn = fetch): Promise<DiscoveredModel[]> {
   const url = `${baseUrl.replace(/\/+$/, '')}/models`
   const res = await fetchFn(url, {
@@ -58,7 +73,12 @@ export async function discoverModels(baseUrl: string, apiKey: string, fetchFn: F
     if (!id || seen.has(id)) continue
     seen.add(id)
     const meta = modelMetaFromUpstream(raw)
-    models.push(meta ? { id, meta } : { id })
+    const endpoints = modelEndpointsFromUpstream(raw)
+    models.push({
+      id,
+      ...(meta ? { meta } : {}),
+      ...(endpoints ? { endpoints } : {})
+    })
   }
   return models.sort((a, b) => a.id.localeCompare(b.id))
 }
