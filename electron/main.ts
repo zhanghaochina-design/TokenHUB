@@ -3,6 +3,8 @@ import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { autoUpdater } from 'electron-updater'
 import { Hub } from '../core/hub'
+import { LocalService } from '../core/local/service'
+import { Logger } from '../core/store/logger'
 import { safeStorageCipher } from './safeStorageCipher'
 import { registerIpc, syncAutoStart } from './ipc'
 import { UpdateController, type UpdaterLike } from './updateController'
@@ -16,6 +18,7 @@ const TRAY_RED: [number, number, number] = [239, 68, 68]
 let win: BrowserWindow | null = null
 let tray: Tray | null = null
 let hub: Hub | null = null
+let localService: LocalService | null = null
 let quitting = false
 
 // 必须在 ready 前改 userData，否则 secrets/config 会先落到默认目录。
@@ -95,6 +98,26 @@ async function boot(): Promise<void> {
   })
   await hub.init()
 
+  // 本地服务在 Hub 之后启动：它要在 init 里立即把「无模型」同步给本地供应商。
+  // 启动阶段的快照广播发生在窗口创建前，订阅方靠 getState 补当前状态；win 判空是必须的。
+  localService = await LocalService.open({
+    dataDir: app.getPath('userData'),
+    hub: {
+      syncLocalProvider: (input) => hub!.syncLocalProvider(input)
+    },
+    secrets: {
+      getHfToken: () => hub!.getHfToken(),
+      hasHfToken: () => Boolean(hub!.getHfToken()),
+      setHfToken: (token) => hub!.setHfToken(token)
+    },
+    logger: new Logger(join(app.getPath('userData'), 'logs', 'app.log')),
+    onSnapshot: (snapshot) => {
+      if (win && !win.isDestroyed() && !win.webContents.isDestroyed()) {
+        win.webContents.send('tokenhub:localState', snapshot)
+      }
+    }
+  })
+
   const updateController = new UpdateController(
     app.isPackaged ? (autoUpdater as unknown as UpdaterLike) : null,
     app.getVersion(),
@@ -103,6 +126,7 @@ async function boot(): Promise<void> {
 
   registerIpc(
     hub,
+    localService,
     (state) => {
       if (win && !win.isDestroyed() && !win.webContents.isDestroyed()) {
         win.webContents.send('tokenhub:state', state)
@@ -171,9 +195,11 @@ if (!app.requestSingleInstanceLock()) {
     if (!hub?.getState().settings.closeToTray) app.quit()
   })
 
-  // Electron 不会等待异步监听器，但这里先置 quitting 再关闭 Hub，尽量让端口与定时器先释放。
+  // Electron 不会等待异步监听器，但这里先置 quitting 再关闭本地运行时与 Hub，尽量让端口与定时器先释放。
+  // 本地运行时排在最前：先杀掉 llama-server，Hub 关闭时在途的本地请求会立即失败，而不是挂在将死的上游上。
   app.on('before-quit', async () => {
     quitting = true
+    await localService?.shutdown().catch((error) => console.error('TokenHUB local runtime shutdown failed:', error))
     await hub?.shutdown().catch((error) => console.error('TokenHUB shutdown failed:', error))
   })
 }

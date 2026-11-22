@@ -318,6 +318,19 @@ export class Hub {
     this.emit()
   }
 
+  /**
+   * HuggingFace Token 只供本地模型下载使用，与供应商 Key 分开存放。
+   * 本地服务不直接持有 SecretStore，统一经这两个方法读写，避免出现第二份加密文件。
+   */
+  getHfToken(): string | null {
+    return this.secrets.getHfToken()
+  }
+
+  async setHfToken(token: string | null): Promise<void> {
+    await this.secrets.setHfToken(token)
+    this.emit()
+  }
+
   async addProvider(input: ProviderInput): Promise<void> {
     // 本地供应商只能由 Hub 按本地服务状态创建；放进来会得到第二个无 Key、不可删、永不同步的本地供应商。
     if (input.preset === 'local') throw new Error('local provider is managed automatically')

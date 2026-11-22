@@ -1,4 +1,5 @@
 import type { AppState, HistoryRecord, ModelAlias, ModelMeta, Preset, ProtocolScanResult, ProviderConfig, ProviderSpeedStats, ProviderUsageStats, QuotaAdapterId, QuotaSnapshot, Settings } from './types'
+import type { HfModelDetail, HfModelSummary, LocalBackend, LocalSettings, LocalSnapshot } from './local/types'
 
 export interface ProviderInput {
   preset: Preset
@@ -31,6 +32,32 @@ export interface TestResult {
   error?: string
 }
 
+// 本地模型功能的完整 IPC 面；P2 的 HF 搜索/下载方法在 Task 12 接入前没有处理器，
+// 调用会直接 reject，界面此时也不应该调用它们。
+export interface LocalApi {
+  getState(): Promise<LocalSnapshot>
+  detectHardware(): Promise<LocalSnapshot>
+  installRuntime(backend?: LocalBackend): Promise<LocalSnapshot>
+  removeRuntime(backend: LocalBackend): Promise<LocalSnapshot>
+  // 用户在系统对话框里取消时返回 null，不当作错误。
+  importRuntimeZip(): Promise<LocalSnapshot | null>
+  loadModel(id: string, contextSize?: number): Promise<LocalSnapshot>
+  stopModel(): Promise<LocalSnapshot>
+  deleteModel(id: string): Promise<LocalSnapshot>
+  refreshModels(): Promise<LocalSnapshot>
+  updateSettings(patch: Partial<LocalSettings>): Promise<LocalSnapshot>
+  searchHf(query: string): Promise<HfModelSummary[]>
+  getHfModel(repo: string): Promise<HfModelDetail>
+  download(repo: string, files: string[]): Promise<LocalSnapshot>
+  pauseDownload(id: string): Promise<LocalSnapshot>
+  resumeDownload(id: string): Promise<LocalSnapshot>
+  cancelDownload(id: string): Promise<LocalSnapshot>
+  setHfToken(token: string | null): Promise<LocalSnapshot>
+  revealModelsDir(): Promise<void>
+  // 返回退订函数；快照由主进程节流后推送，订阅者不必自己轮询。
+  onState(cb: (snapshot: LocalSnapshot) => void): () => void
+}
+
 export interface TokenHubApi {
   getState(): Promise<AppState>
   addProvider(input: ProviderInput): Promise<void>
@@ -60,6 +87,7 @@ export interface TokenHubApi {
   installUpdate(): Promise<void>
   onUpdate(cb: (state: UpdateState) => void): () => void
   onState(cb: (state: AppState) => void): () => void
+  local: LocalApi
 }
 
 export type UpdatePhase =
