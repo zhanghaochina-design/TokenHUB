@@ -35,7 +35,7 @@ export function DownloadQueue({ tasks, onError }: { tasks: DownloadTask[]; onErr
   }
 
   return (
-    <section className="mt-4 rounded-lg border border-line bg-surface p-5 shadow-sm">
+    <section className="min-w-0 rounded-lg border border-line bg-surface p-5 shadow-sm">
       <h2 className="text-sm font-semibold text-ink">下载队列</h2>
       <ul className="mt-3 space-y-4">
         {tasks.map((task) => {

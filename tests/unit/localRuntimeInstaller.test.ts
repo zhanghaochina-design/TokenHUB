@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   RuntimeInstaller,
-  assetNamesFor,
+  assetMatchersFor,
   mirroredUrl,
   selectRuntimeRelease,
   type InstallerPorts,
@@ -21,7 +21,8 @@ const releases: ReleaseInfo[] = [
       { name: 'llama-b12627-bin-win-vulkan-x64.zip', browser_download_url: 'https://x/vulkan.zip' },
       { name: 'llama-b12627-bin-win-cuda-12.4-x64.zip', browser_download_url: 'https://x/cuda.zip' },
       { name: 'cudart-llama-bin-win-cuda-12.4-x64.zip', browser_download_url: 'https://x/cudart.zip' },
-      { name: 'llama-b12627-bin-win-cpu-x64.zip', browser_download_url: 'https://x/cpu.zip' }
+      { name: 'llama-b12627-bin-win-cpu-x64.zip', browser_download_url: 'https://x/cpu.zip' },
+      { name: 'llama-b12627-bin-win-rocm-10.0-x64.zip', browser_download_url: 'https://x/rocm.zip' }
     ]
   }
 ]
@@ -36,17 +37,29 @@ describe('runtime assets', () => {
       'llama-b12627-bin-win-cuda-12.4-x64.zip',
       'cudart-llama-bin-win-cuda-12.4-x64.zip'
     ])
-    expect(selectRuntimeRelease(releases, 'rocm')).toBeNull()
+    const rocm = selectRuntimeRelease(releases, 'rocm')
+    expect(rocm?.assets.map((asset) => asset.name)).toEqual(['llama-b12627-bin-win-rocm-10.0-x64.zip'])
   })
 
-  it('builds asset names per backend and applies a mirror prefix', () => {
-    expect(assetNamesFor('vulkan', 'b1')).toEqual(['llama-b1-bin-win-vulkan-x64.zip'])
-    expect(assetNamesFor('cuda', 'b1')).toEqual([
-      'llama-b1-bin-win-cuda-12.4-x64.zip',
-      'cudart-llama-bin-win-cuda-12.4-x64.zip'
+  it('matches asset names per backend and applies a mirror prefix', () => {
+    const [vulkan] = assetMatchersFor('vulkan', 'b1')
+    expect(vulkan('llama-b1-bin-win-vulkan-x64.zip')).toBe(true)
+    expect(vulkan('llama-b2-bin-win-vulkan-x64.zip')).toBe(false)
+    expect(assetMatchersFor('cuda', 'b1').map((matches) => matches('cudart-llama-bin-win-cuda-12.4-x64.zip'))).toEqual([
+      false,
+      true
     ])
     expect(mirroredUrl('https://github.com/a.zip', 'https://ghfast.top/')).toBe('https://ghfast.top/https://github.com/a.zip')
     expect(mirroredUrl('https://github.com/a.zip', '')).toBe('https://github.com/a.zip')
+  })
+
+  it('matches ROCm assets by version segment instead of a fixed name', () => {
+    const [rocm] = assetMatchersFor('rocm', 'b1')
+    expect(rocm('llama-b1-bin-win-rocm-10.0-x64.zip')).toBe(true)
+    expect(rocm('llama-b1-bin-win-rocm-10.1-x64.zip')).toBe(true)
+    expect(rocm('llama-b1-bin-win-rocm-x64.zip')).toBe(false)
+    expect(rocm('llama-b1-bin-win-rocm-10.0-arm64.zip')).toBe(false)
+    expect(rocm('llama-b2-bin-win-rocm-10.0-x64.zip')).toBe(false)
   })
 })
 

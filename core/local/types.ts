@@ -7,6 +7,8 @@ export interface LocalSettings {
   modelsDir: string
   localPort: number
   backend: BackendPreference
+  // llama-server `--device` 的取值（如 Vulkan0）；空串表示交给 llama.cpp 按默认策略选择。
+  gpuDevice: string
   hfEndpoint: HfEndpointKind
   hfEndpointCustom: string
   // GitHub 资产下载前缀；空串为直连。

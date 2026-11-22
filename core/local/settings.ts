@@ -4,6 +4,7 @@ export const DEFAULT_LOCAL_SETTINGS: LocalSettings = {
   modelsDir: '',
   localPort: 8788,
   backend: 'auto',
+  gpuDevice: '',
   hfEndpoint: 'official',
   hfEndpointCustom: '',
   githubMirror: '',
@@ -32,6 +33,8 @@ export function normalizeLocalSettings(raw: unknown): LocalSettings {
     modelsDir: typeof input.modelsDir === 'string' ? input.modelsDir.trim() : '',
     localPort: intInRange(input.localPort, DEFAULT_LOCAL_SETTINGS.localPort, 1, 65535),
     backend,
+    // 设备标识来自 `--list-devices`，这里只清洗空白；是否可用由加载时对照当前运行时安装记录判断。
+    gpuDevice: typeof input.gpuDevice === 'string' ? input.gpuDevice.trim() : '',
     hfEndpoint,
     hfEndpointCustom:
       typeof input.hfEndpointCustom === 'string' ? input.hfEndpointCustom.trim().replace(/\/+$/, '') : '',

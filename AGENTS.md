@@ -60,8 +60,10 @@
 - 本地供应商由 Hub 独占维护：`addProvider` 拒绝 `preset: 'local'`，`deleteProvider` 与改 Base URL / API Key / `maxConcurrency` / 手动模型 / 额度适配器一律拒绝——这些字段由本地服务按运行状态同步，手改会被下一次同步覆盖；供应商页对本地项只暴露启停开关与拖拽排序（优先级就是 `config.providers` 顺序，重排后照常重建 `catalog`），本地模型的展示隐藏仍在模型页切换。
 - `localPort` 与监听端口无关：它是 llama-server 的端口，变更后即使没有已加载模型也要重新 `syncLocalProvider`，否则供应商 `baseUrl` 停在旧端口。设置先原子写 `local.json` 再同步本地服务。
 - 显存必须读注册表 `HardwareInformation.qwMemorySize`（WMI `AdapterRAM` 是 uint32，24GB 会截断成 ~4GB），按 `MatchingDeviceId` 的设备 ID 精确配对、再退化到名称匹配，`vramEstimated` 标出估算值。AMD 默认 Vulkan、NVIDIA 默认 CUDA 12.4，ROCm 只在用户显式选择时使用。设备真值来自 `llama-server --list-devices`：安装门槛是两个各带 15s 超时的探针（`--version` 与非空 `--list-devices`），任一非零退出或空输出都拒绝该包并把安装错误抛到界面；已安装记录没有报出设备时硬件卡只显示「未报告设备」，不做驱动提示。
+- 多显卡选择保存在 `settings.gpuDevice`（`llama-server --device` 的标识如 `Vulkan0`，空串为自动）：运行时报告多块设备时硬件卡显示下拉，选中即原子写入 `local.json`，下次加载模型生效。加载时只有所选设备仍出现在当前后端 `install.devices` 中才下发 `--device`，否则回退自动，避免换运行时/后端后带着未知设备启动失败；标识由 `core/local/devices.ts` 解析 `--list-devices` 行，表头与后端日志行不参与。
 - 双探针缺一不可（`probeRuntime`）：只跑 `--list-devices` 时缺 DLL 的坏包会被解析成空列表并记成「安装成功」，所以安装前必须先用 `--version` 确认二进制能跑。安装/导入互斥（`installing` 为真直接拒绝），进度经 `LocalSnapshot.installProgress` 上浮、结束（成功或失败）清空，目前不支持取消安装。
-- 运行时资产从 GitHub `releases?per_page=10` 列表里挑第一个「资产齐全」的版本，不能依赖 `/releases/latest`（可能指向没有 Windows 资产的版本）；CUDA 需要主包加 `cudart-llama-bin-win-cuda-12.4-x64.zip`，两个 zip 必须**追加**解压进同一 staging 目录，校验通过后才换目录、写记录。
+- 运行时资产从 GitHub `releases?per_page=10` 列表里挑第一个「资产齐全」的版本，不能依赖 `/releases/latest`（可能指向没有 Windows 资产的版本）；CUDA 需要主包加 `cudart-llama-bin-win-cuda-12.4-x64.zip`，两个 zip 必须**追加**解压进同一 staging 目录，校验通过后才换目录、写记录。ROCm 资产名带 HIP 版本段（`llama-<tag>-bin-win-rocm-10.0-x64.zip`），版本随 release 变化，只能按 `rocm-<版本>-x64` 模式匹配，不能拼固定文件名。
+- 本地启动参数固定 `-fa off`：Vulkan 上 Flash Attention 的 prefill 明显更慢（长 prompt 实测差约 39%），关掉只让极小 prompt 多约 0.1s、生成慢约 2%；同时不要调大 `-ub`（2048 会让生成掉约四分之一）。
 - 运行时、GGUF 与本地配置都落在数据目录：`local/runtime/`、`models/`（可在设置里改目录，手动放入 GGUF 后「重新扫描」即可加载）、`local.json`、`local/runtime.json`、`local/downloads.json`，都不进安装包；这三个 JSON 一律原子写（`.tmp` + rename），HF Token 只存 `secrets.bin`。
 - HF 源只在 `hfBaseUrl` 一处推导（官方 / `hf-mirror.com` / 自定义），API 请求统一 15s 超时并覆盖响应体读取；401/403 提示「需要 Token 或需要授权」而不是网络故障，仓库 ID 必须是 `org/repo` 且拒绝 `.`/`..`。
 - 下载用 `.part` + Range 断点续传；入队前要求模型目录可用空间 ≥2 GB（`MIN_FREE_BYTES`），并拒绝同一仓库同一文件的活动任务重叠——两条任务写同一个 `.part` 会拼出坏文件。重启时只把非终态任务降级为 paused，绝不自动续传。

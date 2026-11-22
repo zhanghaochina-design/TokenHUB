@@ -77,6 +77,23 @@ describe('llama args', () => {
       '-c', '8192',
       '-ngl', '99',
       '-np', '1',
+      '-fa', 'off',
+      '--jinja'
+    ])
+  })
+
+  it('passes the selected device next to the GPU offload flag', () => {
+    expect(
+      buildLlamaArgs({ modelPath: 'C:/m.gguf', port: 8788, contextSize: 8192, parallel: 1, device: 'Vulkan0' })
+    ).toEqual([
+      '-m', 'C:/m.gguf',
+      '--host', '127.0.0.1',
+      '--port', '8788',
+      '-c', '8192',
+      '-ngl', '99',
+      '--device', 'Vulkan0',
+      '-np', '1',
+      '-fa', 'off',
       '--jinja'
     ])
   })

@@ -56,7 +56,7 @@ export function InstalledModelsCard({ snapshot, onError }: { snapshot: LocalSnap
   }
 
   return (
-    <section className="mt-4 rounded-lg border border-line bg-surface p-5 shadow-sm">
+    <section className="min-w-0 rounded-lg border border-line bg-surface p-5 shadow-sm lg:col-span-2">
       <div className="flex items-center justify-between gap-3">
         <h2 className="text-sm font-semibold text-ink">已安装模型</h2>
         <div className="flex gap-3">

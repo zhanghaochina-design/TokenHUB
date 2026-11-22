@@ -35,11 +35,22 @@ export interface InstallerPorts {
   validate(exePath: string): Promise<string[]>
 }
 
+const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
 // 资产命名取自 llama.cpp 官方 release：CUDA 需要运行时包 cudart 与主包两个 zip 一起解压，其它后端只有主包。
 // tag 用 release.tag_name 原样拼接（如 b12627），不要补 v 前缀。
-export function assetNamesFor(backend: LocalBackend, tag: string): string[] {
-  if (backend === 'cuda') return [`llama-${tag}-bin-win-cuda-12.4-x64.zip`, 'cudart-llama-bin-win-cuda-12.4-x64.zip']
-  return [`llama-${tag}-bin-win-${backend}-x64.zip`]
+// ROCm 包名带 HIP 版本段（llama-b12631-bin-win-rocm-10.0-x64.zip），版本随 release 变化，只能按模式匹配。
+export function assetMatchersFor(backend: LocalBackend, tag: string): Array<(name: string) => boolean> {
+  if (backend === 'cuda') {
+    const names = [`llama-${tag}-bin-win-cuda-12.4-x64.zip`, 'cudart-llama-bin-win-cuda-12.4-x64.zip']
+    return names.map((name) => (candidate) => candidate === name)
+  }
+  if (backend === 'rocm') {
+    const pattern = new RegExp(`^llama-${escapeRegExp(tag)}-bin-win-rocm-\\d+(?:\\.\\d+)*-x64\\.zip$`)
+    return [(name) => pattern.test(name)]
+  }
+  const name = `llama-${tag}-bin-win-${backend}-x64.zip`
+  return [(candidate) => candidate === name]
 }
 
 // /releases/latest 可能指向没有 Windows 资产的版本（如只有 nightly-tag.txt），
@@ -49,8 +60,8 @@ export function selectRuntimeRelease(
   backend: LocalBackend
 ): { tag: string; assets: Array<{ name: string; url: string }> } | null {
   for (const release of releases) {
-    const required = assetNamesFor(backend, release.tag_name)
-    const found = required.map((name) => release.assets.find((asset) => asset.name === name))
+    const matchers = assetMatchersFor(backend, release.tag_name)
+    const found = matchers.map((matches) => release.assets.find((asset) => matches(asset.name)))
     if (found.every((asset): asset is ReleaseAsset => Boolean(asset))) {
       return {
         tag: release.tag_name,

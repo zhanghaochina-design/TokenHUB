@@ -40,16 +40,27 @@ const PROBE_TIMEOUT_MS = 5000
  * - 只绑定 127.0.0.1，不暴露到局域网；
  * - `-ngl 99` 全部层交给 GPU，CPU 后端由 llama.cpp 自行忽略；
  * - `-np 1` 单并发槽，与本地网关「一次只服务一个会话」的口径一致；
- * - `--jinja` 使用模型自带聊天模板，网关转译不注入模板。
+ * - `--jinja` 使用模型自带聊天模板，网关转译不注入模板；
+ * - `-fa off`：Vulkan 上 Flash Attention 的 prefill 明显慢于普通注意力（长 prompt 实测差约 39%），
+ *   关掉只让几百 token 以内的 prompt 多约 0.1s、生成慢约 2%；
+ * - `--device` 只在用户显式选了某块卡时下发，把卸载限定到该设备；缺省由 llama.cpp 自行选择。
  */
-export function buildLlamaArgs(input: { modelPath: string; port: number; contextSize: number; parallel: number }): string[] {
+export function buildLlamaArgs(input: {
+  modelPath: string
+  port: number
+  contextSize: number
+  parallel: number
+  device?: string | null
+}): string[] {
   return [
     '-m', input.modelPath,
     '--host', '127.0.0.1',
     '--port', String(input.port),
     '-c', String(input.contextSize),
     '-ngl', '99',
+    ...(input.device ? ['--device', input.device] : []),
     '-np', String(input.parallel),
+    '-fa', 'off',
     '--jinja'
   ]
 }
@@ -181,7 +192,12 @@ export class LocalRuntime {
    * 上层从 `getStatus()` 与 `setOnExit` 观察结果。
    * 每次 await 之后都重新确认「还是同一个进程、同一次 load」，否则会覆盖退出/停止路径写入的状态。
    */
-  async load(model: { modelId: string; modelPath: string }, backend: LocalBackend, contextSize: number): Promise<void> {
+  async load(
+    model: { modelId: string; modelPath: string },
+    backend: LocalBackend,
+    contextSize: number,
+    device?: string | null
+  ): Promise<void> {
     await this.stop()
     const token = ++this.loadToken
     const install = this.options.getInstall(backend)
@@ -205,7 +221,7 @@ export class LocalRuntime {
       startedAt: this.now().toISOString()
     })
 
-    const args = buildLlamaArgs({ modelPath: model.modelPath, port, contextSize, parallel: 1 })
+    const args = buildLlamaArgs({ modelPath: model.modelPath, port, contextSize, parallel: 1, device })
     let child: ChildHandle
     try {
       child = this.options.spawnPorts.spawn(install.exePath, args, { windowsHide: true })

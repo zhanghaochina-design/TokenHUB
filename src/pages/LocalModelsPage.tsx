@@ -39,16 +39,16 @@ export function LocalModelsPage() {
       <div className="grid gap-4 lg:grid-cols-2">
         <HardwareCard snapshot={snapshot} onError={setToast} />
         <RuntimeCard snapshot={snapshot} onError={setToast} />
+        <InstalledModelsCard snapshot={snapshot} onError={setToast} />
+        <LocalSettingsCard snapshot={snapshot} onError={setToast} />
+        {/* 入队后队列由主进程推送刷新；下载完成时后端自己重扫模型目录，这里不主动 refreshModels。 */}
+        <HfSearchPanel
+          hfTokenSet={snapshot.hfTokenSet}
+          onDownloaded={(repo) => setToast(`已加入下载队列：${repo}`)}
+          onError={setToast}
+        />
+        <DownloadQueue tasks={snapshot.downloads} onError={setToast} />
       </div>
-      <InstalledModelsCard snapshot={snapshot} onError={setToast} />
-      <LocalSettingsCard snapshot={snapshot} onError={setToast} />
-      {/* 入队后队列由主进程推送刷新；下载完成时后端自己重扫模型目录，这里不主动 refreshModels。 */}
-      <HfSearchPanel
-        hfTokenSet={snapshot.hfTokenSet}
-        onDownloaded={(repo) => setToast(`已加入下载队列：${repo}`)}
-        onError={setToast}
-      />
-      <DownloadQueue tasks={snapshot.downloads} onError={setToast} />
       {toast ? <Toast message={toast} onDismiss={() => setToast(null)} /> : null}
     </div>
   )

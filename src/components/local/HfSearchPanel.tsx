@@ -84,7 +84,7 @@ export function HfSearchPanel({
   const alreadyEnqueued = detail !== null && enqueuedRepo === detail.id
   const input = 'h-9 w-full rounded-lg border border-line bg-surface px-3 text-sm text-ink focus:border-accent focus:outline-none'
   return (
-    <section className="mt-4 rounded-lg border border-line bg-surface p-5 shadow-sm">
+    <section className="min-w-0 rounded-lg border border-line bg-surface p-5 shadow-sm">
       <h2 className="text-sm font-semibold text-ink">HuggingFace 模型</h2>
       <div className="mt-3 flex gap-2">
         <input

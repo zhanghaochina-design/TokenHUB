@@ -123,7 +123,7 @@ export function LocalSettingsCard({ snapshot, onError }: { snapshot: LocalSnapsh
 
   const input = 'h-9 w-full rounded-lg border border-line bg-surface px-3 text-sm text-ink focus:border-accent focus:outline-none'
   return (
-    <section className="mt-4 rounded-lg border border-line bg-surface p-5 shadow-sm">
+    <section className="min-w-0 rounded-lg border border-line bg-surface p-5 shadow-sm lg:col-span-2">
       <h2 className="text-sm font-semibold text-ink">本地设置</h2>
       <div className="mt-3 grid gap-3 md:grid-cols-2">
         <label className="text-xs text-muted">

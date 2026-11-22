@@ -2,6 +2,7 @@ import { execFile, spawn } from 'node:child_process'
 import { mkdir, readFile, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { writeFileAtomic } from '../store/fsUtil'
+import { parseRuntimeDevices } from './devices'
 import { DownloadManager } from './downloader'
 import { detectHardware, runCommand } from './hardware'
 import { HfClient, isRepoId } from './hf'
@@ -45,7 +46,12 @@ export interface LocalLoggerPort {
 
 export interface LocalRuntimePort {
   getStatus(): LocalRuntimeStatus
-  load(model: { modelId: string; modelPath: string }, backend: LocalBackend, contextSize: number): Promise<void>
+  load(
+    model: { modelId: string; modelPath: string },
+    backend: LocalBackend,
+    contextSize: number,
+    device?: string | null
+  ): Promise<void>
   stop(): Promise<void>
   shutdown(): Promise<void>
   setOnExit(cb: () => void): void
@@ -263,6 +269,17 @@ export class LocalService {
     return this.installFor(preferred) ?? this.installs[0] ?? null
   }
 
+  // 设备名来自当前后端的安装记录；换运行时/后端后旧名字可能已不存在，此时必须回退自动，
+  // 否则 llama-server 会带着未知 `--device` 启动失败。
+  private resolveDevice(install: RuntimeInstall): string | null {
+    const wanted = this.settings.gpuDevice
+    if (!wanted) return null
+    const match = parseRuntimeDevices(install.devices).find(
+      (device) => device.id.toLowerCase() === wanted.toLowerCase()
+    )
+    return match?.id ?? null
+  }
+
   getSnapshot(): LocalSnapshot {
     const install = this.preferredInstall()
     return {
@@ -401,7 +418,8 @@ export class LocalService {
     await this.runtime.load(
       { modelId: model.id, modelPath: join(this.modelsDir, model.path) },
       install.backend,
-      clampContext(contextSize, this.settings.defaultContext)
+      clampContext(contextSize, this.settings.defaultContext),
+      this.resolveDevice(install)
     )
     const status = this.runtime.getStatus()
     if (status.phase !== 'running') {

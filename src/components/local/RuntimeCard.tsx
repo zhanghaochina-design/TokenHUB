@@ -26,7 +26,7 @@ export function RuntimeCard({ snapshot, onError }: { snapshot: LocalSnapshot; on
   }
 
   return (
-    <section className="rounded-lg border border-line bg-surface p-5 shadow-sm">
+    <section className="min-w-0 rounded-lg border border-line bg-surface p-5 shadow-sm">
       <h2 className="text-sm font-semibold text-ink">运行状态</h2>
       <p className="mt-2 text-sm text-ink">
         {PHASE_LABEL[runtime.phase]}

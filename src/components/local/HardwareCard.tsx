@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { parseRuntimeDevices } from '../../../core/local/devices'
 import type { LocalSnapshot } from '../../../core/local/types'
 import { errorMessage } from '../../lib/format'
 
@@ -8,7 +9,8 @@ function gb(bytes: number | null): string {
 
 export function HardwareCard({ snapshot, onError }: { snapshot: LocalSnapshot; onError: (message: string) => void }) {
   const [busy, setBusy] = useState(false)
-  const { hardware, install } = snapshot
+  const [savingDevice, setSavingDevice] = useState(false)
+  const { hardware, install, settings } = snapshot
   const progress = snapshot.installProgress ?? null
   // 安装/导入共用同一个 staging 目录，进度存在即视为安装在进行：离开页面再回来 busy 会归零，
   // 只靠 busy 会漏掉「后台还在安装」的情况，仍能再触发一次安装。
@@ -42,6 +44,22 @@ export function HardwareCard({ snapshot, onError }: { snapshot: LocalSnapshot; o
     }
   }
 
+  // 设备标识以运行时 `--list-devices` 为准：它才是 `--device` 能接受的取值。
+  const devices = parseRuntimeDevices(install?.devices ?? [])
+  const savedDevice = devices.find((device) => device.id.toLowerCase() === settings.gpuDevice.toLowerCase())?.id ?? ''
+  const missingDevice = install !== null && settings.gpuDevice !== '' && savedDevice === ''
+
+  async function selectDevice(device: string) {
+    setSavingDevice(true)
+    try {
+      await window.tokenhub.local.updateSettings({ gpuDevice: device })
+    } catch (error) {
+      onError(`保存显卡选择失败：${errorMessage(error)}`)
+    } finally {
+      setSavingDevice(false)
+    }
+  }
+
   // 卸载是唯一的磁盘回收路径（重装会清旧目录，但用户想彻底释放空间只能走这里），必须给到界面。
   async function removeRuntime() {
     if (!install) return
@@ -57,7 +75,7 @@ export function HardwareCard({ snapshot, onError }: { snapshot: LocalSnapshot; o
   }
 
   return (
-    <section className="rounded-lg border border-line bg-surface p-5 shadow-sm">
+    <section className="min-w-0 rounded-lg border border-line bg-surface p-5 shadow-sm">
       <h2 className="text-sm font-semibold text-ink">显卡与后端</h2>
       {hardware.error ? <p className="mt-2 text-xs text-red-600">{hardware.error}</p> : null}
       <ul className="mt-3 space-y-2">
@@ -77,6 +95,27 @@ export function HardwareCard({ snapshot, onError }: { snapshot: LocalSnapshot; o
         ))}
         {hardware.gpus.length === 0 ? <li className="text-sm text-muted">未识别到独立显卡，将使用 CPU 后端。</li> : null}
       </ul>
+      {install && devices.length > 1 ? (
+        <label className="mt-3 block text-xs text-muted">
+          使用显卡（下次加载模型生效）
+          <select
+            value={savedDevice}
+            onChange={(event) => void selectDevice(event.target.value)}
+            disabled={savingDevice}
+            className="mt-1 h-9 w-full rounded-lg border border-line bg-surface px-3 text-sm text-ink focus:border-accent focus:outline-none disabled:opacity-60"
+          >
+            <option value="">自动（llama.cpp 默认）</option>
+            {devices.map((device) => (
+              <option key={device.id} value={device.id}>
+                {device.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
+      {missingDevice ? (
+        <p className="mt-2 text-xs text-amber-700">已保存的显卡不在当前运行时设备列表中，将按自动处理。</p>
+      ) : null}
       <p className="mt-3 text-xs text-muted">
         推荐后端：<span className="font-medium text-ink">{hardware.recommendedBackend}</span>
         {install ? ` · 已安装 ${install.tag}（${install.devices.join(' / ') || '未报告设备'}）` : ' · 未安装运行时'}

@@ -109,6 +109,7 @@ async function createHarness(options: HarnessOptions = {}) {
     loaded: false,
     modelId: null as string | null,
     contextLength: null as number | null,
+    device: null as string | null,
     hfToken: options.hfToken ?? null,
     // null 表示按 loaded 推导；显式值用于模拟「runtime 还记着 modelId，但进程已经停了」。
     phase: null as LocalRuntimeStatus['phase'] | null
@@ -167,11 +168,12 @@ async function createHarness(options: HarnessOptions = {}) {
           port: state.loaded ? 8788 : null,
           contextLength: state.contextLength
         }),
-      load: async (model, _backend, contextSize) => {
+      load: async (model, _backend, contextSize, device) => {
         if (options.loadFails) return
         state.loaded = true
         state.modelId = model.modelId
         state.contextLength = contextSize
+        state.device = device ?? null
       },
       stop: async () => {
         state.loaded = false
@@ -242,6 +244,29 @@ describe('LocalService', () => {
 
     await service.loadModel('Qwen3-8B-Q4_K_M', 1)
     expect(state.contextLength).toBe(512)
+    await service.shutdown()
+  })
+
+  it('passes the selected GPU device only when the current runtime reports it', async () => {
+    const { service, state } = await createHarness({
+      files: ['Qwen3-8B-Q4_K_M.gguf'],
+      installs: [
+        {
+          ...install,
+          devices: ['Vulkan0: AMD Radeon RX 7900 XTX (24560 MiB)', 'Vulkan1: AMD Radeon(TM) Graphics (1024 MiB)']
+        }
+      ]
+    })
+
+    // 大小写不敏感匹配，但下发给 llama-server 的必须是设备列表里的原始标识。
+    await service.updateSettings({ gpuDevice: 'vulkan1' })
+    await service.loadModel('Qwen3-8B-Q4_K_M')
+    expect(state.device).toBe('Vulkan1')
+
+    // 换运行时后旧设备名可能不存在：未知设备必须回退自动，不能带着坏参数启动。
+    await service.updateSettings({ gpuDevice: 'Vulkan9' })
+    await service.loadModel('Qwen3-8B-Q4_K_M')
+    expect(state.device).toBeNull()
     await service.shutdown()
   })
 
