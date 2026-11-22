@@ -16,7 +16,8 @@ import type {
   LocalBackend,
   LocalRuntimeStatus,
   LocalSnapshot,
-  RuntimeInstall
+  RuntimeInstall,
+  SystemUsage
 } from '../../core/local/types'
 
 // 目录读取后的可控延迟：只有竞态用例会把它置为非 0，其余用例保持原样直通。
@@ -85,6 +86,8 @@ interface HarnessOptions {
   onSnapshot?: (snapshot: LocalSnapshot) => void
   /** 硬件探测结果：导入/安装的后端选择在 auto 时要读它。 */
   recommendedBackend?: LocalBackend
+  /** 整机资源采样的注入点；默认返回 null，避免单测真的去 spawn PowerShell。 */
+  sampleUsage?: () => Promise<SystemUsage | null>
 }
 
 async function createHarness(options: HarnessOptions = {}) {
@@ -135,6 +138,7 @@ async function createHarness(options: HarnessOptions = {}) {
     fetchFn: options.fetchFn,
     hf: options.hf,
     downloads: options.downloads,
+    sampleUsage: options.sampleUsage ?? (async () => null),
     detect: async () => ({
       gpus: [],
       recommendedBackend: options.recommendedBackend ?? 'vulkan',
@@ -267,6 +271,30 @@ describe('LocalService', () => {
     await service.updateSettings({ gpuDevice: 'Vulkan9' })
     await service.loadModel('Qwen3-8B-Q4_K_M')
     expect(state.device).toBeNull()
+    await service.shutdown()
+  })
+
+  it('samples system usage independently of the model state', async () => {
+    const usage: SystemUsage = {
+      sampledAt: '2026-01-01T00:00:00.000Z',
+      ramUsedBytes: 8 * 1024 ** 3,
+      ramTotalBytes: 32 * 1024 ** 3,
+      vramUsedBytes: 6 * 1024 ** 3,
+      vramTotalBytes: 24 * 1024 ** 3,
+      gpuPercent: 42
+    }
+    const { service } = await createHarness({
+      files: ['Qwen3-8B-Q4_K_M.gguf'],
+      sampleUsage: async () => usage
+    })
+
+    await waitUntil(() => service.getSnapshot().usage !== null)
+    expect(service.getSnapshot().usage).toEqual(usage)
+
+    // 整机口径与模型是否加载无关：停止模型后资源读数保留。
+    await service.loadModel('Qwen3-8B-Q4_K_M')
+    await service.stopModel()
+    expect(service.getSnapshot().usage).toEqual(usage)
     await service.shutdown()
   })
 
@@ -477,6 +505,7 @@ describe('LocalService', () => {
       modelsDirOverride: join(dataDir, 'models'),
       hub: { syncLocalProvider: async () => {} },
       secrets: { getHfToken: () => null, hasHfToken: () => false, setHfToken: async () => {} },
+      sampleUsage: async () => null,
       installer: {
         install: async () => install,
         importZip: async () => install,
@@ -506,6 +535,7 @@ describe('LocalService', () => {
       dataDir,
       hub: { syncLocalProvider: async () => {} },
       secrets: { getHfToken: () => null, hasHfToken: () => false, setHfToken: async () => {} },
+      sampleUsage: async () => null,
       installer: {
         install: async () => install,
         importZip: async () => install,

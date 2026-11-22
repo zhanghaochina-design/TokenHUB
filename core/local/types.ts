@@ -32,6 +32,18 @@ export interface HardwareReport {
   error?: string
 }
 
+// 整机口径的资源占用：内存来自系统可用量，显存/GPU 取占用最多的适配器。
+export interface SystemUsage {
+  sampledAt: string
+  ramUsedBytes: number
+  ramTotalBytes: number
+  vramUsedBytes: number
+  // 取自硬件探测到的最大显存；未知时为 null，界面只显示已用量。
+  vramTotalBytes: number | null
+  // 整卡最忙引擎的占比，0-100。
+  gpuPercent: number
+}
+
 export interface RuntimeInstall {
   backend: LocalBackend
   tag: string
@@ -94,6 +106,8 @@ export interface LocalSnapshot {
   runtime: LocalRuntimeStatus
   models: InstalledModel[]
   downloads: DownloadTask[]
+  // 整机资源占用；首次采样完成前为 null，停止采样不影响已加载模型。
+  usage: SystemUsage | null
   // 运行时安装进度：只有安装/导入进行中才有值，结束（成功或失败）后清回 null。
   installProgress?: { asset: string; index: number; count: number; received: number; total: number | null } | null
   hfTokenSet: boolean

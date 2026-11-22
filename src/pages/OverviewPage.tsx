@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Pause, Play, RotateCcw, Server } from 'lucide-react'
 import type { AppState, HistoryRecord, ProviderRuntime, ProviderSpeedStats, QuotaWindow } from '../../core/types'
+import type { SystemUsage } from '../../core/local/types'
 import { HistoryTable } from '../components/HistoryTable'
+import { LocalUsageBars } from '../components/local/LocalUsageBars'
 import { QuotaBar } from '../components/QuotaBar'
 import { SpeedGauge } from '../components/SpeedGauge'
 import { Toast } from '../components/Toast'
+import { useLocalState } from '../lib/useLocalState'
 import {
   errorKindLabel,
   errorMessage,
@@ -67,7 +70,19 @@ function QuotaWindows({ windows, now }: { windows: Partial<Record<'rolling' | 'w
   )
 }
 
-function ProviderQuota({ provider, runtime, now }: { provider: ProviderWithKey; runtime: ProviderRuntime | undefined; now: number }) {
+function ProviderQuota({
+  provider,
+  runtime,
+  now,
+  localUsage
+}: {
+  provider: ProviderWithKey
+  runtime: ProviderRuntime | undefined
+  now: number
+  localUsage: SystemUsage | null
+}) {
+  // 本地供应商没有额度接口：用整机资源三条进度条替代「未配置额度查询」。
+  if (provider.preset === 'local') return <LocalUsageBars usage={localUsage} />
   const snapshot = runtime?.quota ?? null
   const note = snapshot?.note ? <p className="mt-2 text-[11px] text-muted">探针备注：{snapshot.note}</p> : null
 
@@ -154,6 +169,7 @@ function ProviderCard({
   index,
   now,
   resetting,
+  localUsage,
   onReset
 }: {
   provider: ProviderWithKey
@@ -163,6 +179,7 @@ function ProviderCard({
   index: number
   now: number
   resetting: boolean
+  localUsage: SystemUsage | null
   onReset: (id: string) => void
 }) {
   const status = providerStatus(provider, runtime, now)
@@ -210,7 +227,7 @@ function ProviderCard({
 
       <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-start">
         <div className="min-w-0 flex-1">
-          <ProviderQuota provider={provider} runtime={runtime} now={now} />
+          <ProviderQuota provider={provider} runtime={runtime} now={now} localUsage={localUsage} />
         </div>
         <SpeedGauge
           stats={speed}
@@ -242,6 +259,7 @@ function ProviderCard({
 }
 
 export function OverviewPage({ state, onOpenProviders, onOpenSettings }: OverviewPageProps) {
+  const local = useLocalState()
   const [history, setHistory] = useState<HistoryRecord[]>([])
   const [historyLoading, setHistoryLoading] = useState(true)
   const [speedStats, setSpeedStats] = useState<ProviderSpeedStats[]>([])
@@ -472,6 +490,7 @@ export function OverviewPage({ state, onOpenProviders, onOpenSettings }: Overvie
                 index={index}
                 now={now}
                 resetting={resettingId === provider.id}
+                localUsage={local?.usage ?? null}
                 onReset={(id) => void handleReset(id)}
               />
             ))}

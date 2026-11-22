@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 // 端口与其它 e2e 文件（smoke 用 18787）错开：本文件每个用例各占一个，避免串行复用同一监听。
-const PORTS = { page: '18788', providers: '18789', panels: '18790', gpu: '18791', layout: '18792' }
+const PORTS = { page: '18788', providers: '18789', panels: '18790', gpu: '18794', layout: '18795', usage: '18796' }
 
 type Window = Awaited<ReturnType<ElectronApplication['firstWindow']>>
 
@@ -140,6 +140,20 @@ test('offers a GPU selector when the runtime reports multiple devices', async ()
     },
     seedTwoGpuRuntime
   )
+})
+
+test('shows three system resource bars on the local overview card', async () => {
+  await withApp(PORTS.usage, async (win) => {
+    await expect(win.getByRole('heading', { name: '概览', level: 1 })).toBeVisible()
+    const card = win
+      .getByRole('list', { name: '供应商额度' })
+      .getByRole('listitem')
+      .filter({ has: win.getByRole('heading', { name: '本地模型', exact: true }) })
+    await expect(card.getByRole('progressbar', { name: '内存占用' })).toBeVisible()
+    await expect(card.getByRole('progressbar', { name: '显存占用' })).toBeVisible()
+    await expect(card.getByRole('progressbar', { name: 'GPU 使用率' })).toBeVisible()
+    await expect(card.getByText('整机资源占用 · 每 5 秒刷新')).toBeVisible()
+  })
 })
 
 test('keeps local card widths consistent on wide and narrow windows', async () => {

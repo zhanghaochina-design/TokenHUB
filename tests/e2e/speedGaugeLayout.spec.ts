@@ -80,7 +80,12 @@ test('quota bars and speed gauge layout', async () => {
     win = await app.firstWindow()
     await win.getByRole('link', { name: '概览', exact: true }).click()
     await expect(win.getByRole('img', { name: /最新 210 t\/s/ })).toBeVisible()
-    await expect(win.getByRole('progressbar')).toHaveCount(3)
+    // 首页还有本地供应商的整机资源条，进度条计数必须限定在被测的额度卡内。
+    const quotaCard = win
+      .getByRole('list', { name: '供应商额度' })
+      .getByRole('listitem')
+      .filter({ hasText: 'OpenCode Go' })
+    await expect(quotaCard.getByRole('progressbar')).toHaveCount(3)
     await win.screenshot({ path: 'out/quota-with-gauge.png' })
     await app.evaluate(({ BrowserWindow }) => {
       BrowserWindow.getAllWindows()[0]?.setSize(1440, 900)

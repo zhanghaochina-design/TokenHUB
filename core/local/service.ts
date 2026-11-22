@@ -21,8 +21,10 @@ import type {
   LocalRuntimeStatus,
   LocalSettings,
   LocalSnapshot,
-  RuntimeInstall
+  RuntimeInstall,
+  SystemUsage
 } from './types'
+import { USAGE_SAMPLE_MS, sampleSystemUsage } from './usage'
 
 export interface LocalHubPort {
   syncLocalProvider(input: {
@@ -88,6 +90,8 @@ export interface LocalServiceOptions {
   logger?: LocalLoggerPort
   fetchFn?: FetchFn
   detect?: (preference: BackendPreference) => Promise<HardwareReport>
+  // 测试注入：覆盖整机资源采样（默认走 PowerShell 性能计数器）。
+  sampleUsage?: () => Promise<SystemUsage | null>
   installer?: RuntimeInstallerPort
   runtime?: LocalRuntimePort
   hf?: HfPort
@@ -123,8 +127,12 @@ export class LocalService {
   private installs: RuntimeInstall[] = []
   private models: LocalSnapshot['models'] = []
   private installProgress: LocalSnapshot['installProgress'] = null
+  private usage: SystemUsage | null = null
+  private usageTimer: ReturnType<typeof setInterval> | null = null
+  private usageInFlight = false
   private readonly runtime: LocalRuntimePort
   private readonly installer: RuntimeInstallerPort
+  private readonly sampleUsage: () => Promise<SystemUsage | null>
   private hf!: HfPort
   private downloads: DownloadManagerPort | null = null
   // 安装/导入互斥：两条流程会并行解压到同一个运行时目录，进度与安装记录都会互相覆盖。
@@ -141,6 +149,9 @@ export class LocalService {
     this.now = options.now ?? (() => new Date())
     this.fetchFn = options.fetchFn ?? (fetch as unknown as FetchFn)
     this.onSnapshot = options.onSnapshot
+    this.sampleUsage =
+      options.sampleUsage ??
+      (() => sampleSystemUsage({ run: runCommand, vramTotalBytes: this.vramTotalBytes(), now: this.now }))
     this.runtime =
       options.runtime ??
       new LocalRuntime({
@@ -204,6 +215,8 @@ export class LocalService {
     await mkdir(this.modelsDir, { recursive: true }).catch(() => {})
     this.installs = await this.installer.listInstalled()
     await this.detect()
+    // 整机资源与模型是否加载无关：窗口一出现就应有读数，先立刻采一次再按间隔刷新。
+    this.startUsageSampling()
     await this.refreshModels()
     this.hf =
       this.options.hf ??
@@ -280,6 +293,48 @@ export class LocalService {
     return match?.id ?? null
   }
 
+  // 显存进度条的分母：优先用用户选中的那块卡（设备行的驱动名包含硬件探测的显卡名），
+  // 自动时取本机最大显存。只影响分母展示，不参与采样与路由。
+  private vramTotalBytes(): number | null {
+    const install = this.preferredInstall()
+    const wanted = this.settings.gpuDevice.toLowerCase()
+    if (install && wanted) {
+      const device = parseRuntimeDevices(install.devices).find((item) => item.id.toLowerCase() === wanted)
+      const label = device?.label.toLowerCase() ?? ''
+      const match = label ? this.hardware.gpus.find((gpu) => label.includes(gpu.name.toLowerCase())) : undefined
+      if (match?.vramBytes) return match.vramBytes
+    }
+    const max = this.hardware.gpus.reduce((best, gpu) => Math.max(best, gpu.vramBytes ?? 0), 0)
+    return max > 0 ? max : null
+  }
+
+  private startUsageSampling(): void {
+    if (this.usageTimer) return
+    const tick = async (): Promise<void> => {
+      // 上一轮还没返回时跳过本轮：PowerShell 偶发卡住不应堆积进程。
+      if (this.usageInFlight) return
+      this.usageInFlight = true
+      try {
+        const next = await this.sampleUsage()
+        // 采样失败保留上一次读数，避免资源条在瞬时失败时闪回空表。
+        if (next) {
+          this.usage = next
+          this.scheduleEmit()
+        }
+      } finally {
+        this.usageInFlight = false
+      }
+    }
+    void tick()
+    this.usageTimer = setInterval(() => void tick(), USAGE_SAMPLE_MS)
+  }
+
+  private stopUsageSampling(): void {
+    if (!this.usageTimer) return
+    clearInterval(this.usageTimer)
+    this.usageTimer = null
+  }
+
   getSnapshot(): LocalSnapshot {
     const install = this.preferredInstall()
     return {
@@ -291,6 +346,7 @@ export class LocalService {
       models: this.models.map((model) => ({ ...model })),
       downloads: this.downloads?.getTasks() ?? [],
       installProgress: this.installProgress ?? null,
+      usage: this.usage ? { ...this.usage } : null,
       hfTokenSet: this.options.secrets.hasHfToken()
     }
   }
@@ -528,6 +584,7 @@ export class LocalService {
   }
 
   async shutdown(): Promise<void> {
+    this.stopUsageSampling()
     if (this.emitTimer) {
       clearTimeout(this.emitTimer)
       this.emitTimer = null
