@@ -141,6 +141,31 @@ describe('DownloadManager', () => {
     await manager.shutdown()
   })
 
+  it('keeps totalBytes unknown when the server sends no length', async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), 'tokenhub-dl-'))
+    const modelsDir = join(dataDir, 'models')
+    // 200 且没有 content-length / content-range：下载器无从得知总量，不能拿已收字节冒充 100%。
+    const fetchFn: FetchFn = async () => new Response(body('unknown'), { status: 200 })
+    const manager = await DownloadManager.open({
+      dataDir,
+      modelsDir: () => modelsDir,
+      baseUrl: () => 'https://huggingface.co',
+      token: () => null,
+      fetchFn,
+      freeSpace: async () => 10 * GB
+    })
+
+    await manager.enqueue('Org/Repo', ['u.gguf'])
+    await manager.waitForIdle()
+
+    const task = manager.getTasks()[0]
+    expect(task.phase).toBe('done')
+    expect(task.files[0].totalBytes).toBe(0)
+    expect(task.files[0].receivedBytes).toBe('unknown'.length)
+    expect(await readFile(join(modelsDir, 'Org/Repo/u.gguf'), 'utf8')).toBe('unknown')
+    await manager.shutdown()
+  })
+
   it('pauses on abort and finishes on resume', async () => {
     const dataDir = await mkdtemp(join(tmpdir(), 'tokenhub-dl-'))
     const modelsDir = join(dataDir, 'models')

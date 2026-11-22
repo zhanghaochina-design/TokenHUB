@@ -249,8 +249,11 @@ export class DownloadManager {
       for (const file of task.files) {
         const dest = join(this.options.modelsDir(), task.repo, file.path)
         // 同一任务里的多文件是顺序下的：已完整落盘的文件（上次暂停前完成）直接跳过，否则 .part 已不存在会整份重下。
-        if (file.totalBytes > 0 && (await stat(dest).catch(() => null))?.size === file.totalBytes) {
-          this.markFile(id, file.path, file.totalBytes)
+        // 上游没给长度时 totalBytes 恒为 0，只能拿「已收字节」当预期大小（dest 只在整份写完后才出现）。
+        const landed = (await stat(dest).catch(() => null))?.size ?? null
+        const expected = file.totalBytes > 0 ? file.totalBytes : file.receivedBytes
+        if (expected > 0 && landed === expected) {
+          this.markFile(id, file.path, expected)
           continue
         }
         const token = this.options.token()
@@ -304,8 +307,9 @@ export class DownloadManager {
         ? {
             ...candidate,
             files: candidate.files.map((item) =>
+              // 只有上游真的给了长度才写 totalBytes：拿已收字节回填会把「未知」伪装成 100% 完成。
               item.path === path
-                ? { ...item, receivedBytes: received, totalBytes: total ?? (item.totalBytes || received) }
+                ? { ...item, receivedBytes: received, totalBytes: total ?? item.totalBytes }
                 : item
             ),
             speedBps: speed ?? candidate.speedBps

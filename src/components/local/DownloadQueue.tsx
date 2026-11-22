@@ -58,7 +58,7 @@ export function DownloadQueue({ tasks, onError }: { tasks: DownloadTask[]; onErr
                 aria-label={`${task.repo} 下载进度`}
                 aria-valuemin={0}
                 aria-valuemax={100}
-                aria-valuenow={percent}
+                aria-valuenow={total > 0 ? percent : undefined}
                 className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-meter-track"
               >
                 <div className="h-full rounded-full bg-meter-primary transition-[width]" style={{ width: `${percent}%` }} />
