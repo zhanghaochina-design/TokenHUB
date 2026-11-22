@@ -121,12 +121,15 @@ function buildModel(
  */
 export function shardPaths(model: InstalledModel): string[] {
   if (model.parts <= 1) return [model.path]
-  const split = splitInfo(posix.basename(model.path))
+  const firstShard = posix.basename(model.path)
+  const split = splitInfo(firstShard)
   if (!split) return [model.path]
   const dir = posix.dirname(model.path)
+  // 扩展名沿用第一个分片的原始大小写（也存在 `.GGUF`）：大小写敏感的文件系统上硬编码 `.gguf` 会找不到文件。
+  const ext = posix.extname(firstShard) || '.gguf'
   const paths: string[] = []
   for (let part = 1; part <= split.total; part += 1) {
-    const fileName = `${split.base}-${String(part).padStart(5, '0')}-of-${String(split.total).padStart(5, '0')}.gguf`
+    const fileName = `${split.base}-${String(part).padStart(5, '0')}-of-${String(split.total).padStart(5, '0')}${ext}`
     paths.push(dir === '.' ? fileName : `${dir}/${fileName}`)
   }
   return paths

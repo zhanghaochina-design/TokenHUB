@@ -11,6 +11,7 @@ import {
   type ReleaseInfo,
   type RuntimeInstallerOptions
 } from '../../core/local/runtimeInstaller'
+import { defaultInstallerPorts } from '../../core/local/service'
 
 const releases: ReleaseInfo[] = [
   { tag_name: 'v1.0.0', assets: [{ name: 'nightly-tag.txt', browser_download_url: 'https://x/nightly' }] },
@@ -206,8 +207,37 @@ describe('RuntimeInstaller failures', () => {
 
     await expect(failing.install('vulkan')).rejects.toThrow('设备探测失败')
 
+    // 校验失败不得顶掉已有安装：记录、exe 与 staging 清理都要保持第一次安装的原样。
+    expect(await failing.listInstalled()).toEqual([first])
     expect(await failing.getExe('vulkan')).toEqual(first)
     expect(await readFile(first.exePath, 'utf8')).toBe('exe')
+    expect(await exists(`${runtimeDir(dataDir, 'vulkan', 'b12627')}.tmp`)).toBe(false)
+  })
+
+  it('does not record a runtime whose default self-check rejects the package', async () => {
+    const dataDir = await tempDataDir()
+    const previous = await makeInstaller(dataDir).install('vulkan')
+    // 用真实的 defaultInstallerPorts.validate + 假探针：CUDA 包缺 cudart 时 --version 会非零退出。
+    const broken = new RuntimeInstaller({
+      dataDir,
+      ports: {
+        download: okDownload,
+        extract: okExtract,
+        validate: defaultInstallerPorts(async () => new Response(''), async (_exe, flag) =>
+          flag === '--version'
+            ? { ok: false, exitCode: 3221225781, output: 'cudart64_12.dll was not found' }
+            : { ok: true, exitCode: 0, output: 'Vulkan0: AMD Radeon RX 7900 XTX' }
+        ).validate
+      },
+      fetchFn: async () => new Response(JSON.stringify(releases), { status: 200 }),
+      mirror: () => '',
+      now: () => new Date('2026-11-22T00:00:00.000Z')
+    })
+
+    await expect(broken.install('vulkan')).rejects.toThrow('3221225781')
+
+    expect(await broken.listInstalled()).toEqual([previous])
+    expect(await readFile(previous.exePath, 'utf8')).toBe('exe')
     expect(await exists(`${runtimeDir(dataDir, 'vulkan', 'b12627')}.tmp`)).toBe(false)
   })
 

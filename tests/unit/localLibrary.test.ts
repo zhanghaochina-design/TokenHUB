@@ -98,6 +98,18 @@ describe('gguf library', () => {
     ])
   })
 
+  it('keeps the extension case of the first shard', () => {
+    const models = groupGgufFiles([
+      { relative: 'org/repo/Big-Q4_K_M-00001-of-00002.GGUF', size: 10 },
+      { relative: 'org/repo/Big-Q4_K_M-00002-of-00002.GGUF', size: 20 }
+    ])
+    expect(models[0].path).toBe('org/repo/Big-Q4_K_M-00001-of-00002.GGUF')
+    expect(shardPaths(models[0])).toEqual([
+      'org/repo/Big-Q4_K_M-00001-of-00002.GGUF',
+      'org/repo/Big-Q4_K_M-00002-of-00002.GGUF'
+    ])
+  })
+
   it('returns the single file for a one-part model and for names without a split marker', () => {
     const single = groupGgufFiles([{ relative: 'Plain/F16.gguf', size: 10 }])
     expect(shardPaths(single[0])).toEqual(['Plain/F16.gguf'])

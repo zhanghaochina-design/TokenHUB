@@ -1,6 +1,7 @@
 import { execFile, spawn } from 'node:child_process'
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rm } from 'node:fs/promises'
 import { join } from 'node:path'
+import { writeFileAtomic } from '../store/fsUtil'
 import { detectHardware, runCommand } from './hardware'
 import { downloadFile, type FetchFn } from './http'
 import { scanModels, shardPaths } from './library'
@@ -86,10 +87,13 @@ export class LocalService {
   private emitTimer: ReturnType<typeof setTimeout> | null = null
   private readonly now: () => Date
   private readonly fetchFn: FetchFn
+  // 可变：`open()` 会在 `init()` 里先广播，调用方只能等它返回后再订阅。
+  private onSnapshot: ((snapshot: LocalSnapshot) => void) | undefined
 
   private constructor(private readonly options: LocalServiceOptions) {
     this.now = options.now ?? (() => new Date())
     this.fetchFn = options.fetchFn ?? (fetch as unknown as FetchFn)
+    this.onSnapshot = options.onSnapshot
     this.runtime =
       options.runtime ??
       new LocalRuntime({
@@ -122,6 +126,14 @@ export class LocalService {
     return service
   }
 
+  /**
+   * 替换快照订阅。`open()` 期间（`init()` 里的检测/扫描）已经在广播，构造参数订阅不到那一段，
+   * 因此调用方需要在 `open()` 返回后补订阅，并用 `getSnapshot()` 补上当前状态。
+   */
+  setOnSnapshot(cb: (snapshot: LocalSnapshot) => void): void {
+    this.onSnapshot = cb
+  }
+
   private get modelsDir(): string {
     return this.options.modelsDirOverride ?? (this.settings.modelsDir || join(this.options.dataDir, 'models'))
   }
@@ -132,7 +144,8 @@ export class LocalService {
 
   private async init(): Promise<void> {
     const text = await readFile(this.settingsFile, 'utf8').catch(() => null)
-    if (text) {
+    // 写入被打断留下的零长度/纯空白文件没有可解析内容：按默认设置启动，不要让本地功能整体报错。
+    if (text && text.trim()) {
       try {
         this.settings = normalizeLocalSettings(JSON.parse(text))
       } catch {
@@ -184,7 +197,7 @@ export class LocalService {
     if (this.emitTimer) return
     this.emitTimer = setTimeout(() => {
       this.emitTimer = null
-      this.options.onSnapshot?.(this.snapshot())
+      this.onSnapshot?.(this.snapshot())
     }, EMIT_THROTTLE_MS)
   }
 
@@ -193,7 +206,7 @@ export class LocalService {
       clearTimeout(this.emitTimer)
       this.emitTimer = null
     }
-    this.options.onSnapshot?.(this.snapshot())
+    this.onSnapshot?.(this.snapshot())
   }
 
   async detect(): Promise<LocalSnapshot> {
@@ -248,8 +261,10 @@ export class LocalService {
 
   async refreshModels(): Promise<LocalSnapshot> {
     const scanned = await scanModels(this.modelsDir)
-    const loadedId = this.runtime.getStatus().modelId
-    this.models = scanned.map((model) => ({ ...model, loaded: model.id === loadedId }))
+    const status = this.runtime.getStatus()
+    // 只有进程真的在跑才能标 loaded：崩溃/停止后 runtime 仍可能保留 modelId，不能凭 id 相等就点亮。
+    const runningId = status.phase === 'running' ? status.modelId : null
+    this.models = scanned.map((model) => ({ ...model, loaded: model.id === runningId }))
     this.emitNow()
     return this.snapshot()
   }
@@ -312,10 +327,12 @@ export class LocalService {
     const dirChanged = next.modelsDir !== this.settings.modelsDir || Boolean(this.options.modelsDirOverride)
     this.settings = next
     await mkdir(this.modelsDir, { recursive: true }).catch(() => {})
-    await writeFile(this.settingsFile, JSON.stringify(this.settings, null, 2), 'utf8')
+    // 原子写：写到一半崩溃时零长度/半截文件会被启动逻辑当成默认设置，静默丢掉用户配置。
+    await writeFileAtomic(this.settingsFile, JSON.stringify(this.settings, null, 2))
     if (portChanged) {
-      await this.stopModel()
-      // 端口变了，旧 baseUrl 立刻失效：即使没有模型在跑也要把供应商指到新端口，避免下一次请求打到旧地址。
+      // 有模型（或在启动/报错）才需要停；空闲时没有可依赖的 stopModel 副作用，
+      // 下面的同步必须由这里自己发，否则旧 baseUrl 会一直留在 Hub 里。
+      if (this.runtime.getStatus().phase !== 'stopped') await this.stopModel()
       await this.options.hub.syncLocalProvider({ baseUrl: this.baseUrl, models: [] })
     }
     if (dirChanged) await this.refreshModels()
@@ -346,6 +363,57 @@ export class LocalService {
   }
 }
 
+const PROBE_TIMEOUT_MS = 15_000
+
+export interface RuntimeProbeResult {
+  ok: boolean
+  /** 退出码；被信号杀死/超时时为 null。Windows 上缺 DLL 会给出 3221225781 这类大数。 */
+  exitCode: number | string | null
+  /** stdout + stderr 的合并输出（已 trim）。 */
+  output: string
+}
+
+export type RuntimeProbe = (exePath: string, flag: string) => Promise<RuntimeProbeResult>
+
+// llama-server 的报错可能写在 stdout 也可能写在 stderr：两个流都拼起来，失败时才不会只剩空字符串。
+function runProbe(exePath: string, flag: string): Promise<RuntimeProbeResult> {
+  return new Promise((resolve) => {
+    execFile(exePath, [flag], { windowsHide: true, timeout: PROBE_TIMEOUT_MS }, (error, stdout, stderr) => {
+      const output = `${stdout ?? ''}${stderr ?? ''}`.trim()
+      if (!error) {
+        resolve({ ok: true, exitCode: 0, output })
+        return
+      }
+      const rawCode = (error as { code?: unknown }).code
+      const exitCode = typeof rawCode === 'number' || typeof rawCode === 'string' ? rawCode : null
+      resolve({ ok: false, exitCode, output: output || error.message })
+    })
+  })
+}
+
+/**
+ * 运行时自检。`--version` 先确认二进制真的能跑（CUDA 包缺 cudart 时进程启动即非零退出），
+ * `--list-devices` 再确认能探测设备；任一非零退出或没有输出都按坏包拒绝。
+ * 只跑 `--list-devices` 时失败/空输出会被解析成空数组，坏包就被记成「安装成功」。
+ */
+export async function probeRuntime(exePath: string, probe: RuntimeProbe = runProbe): Promise<string[]> {
+  const version = await probe(exePath, '--version')
+  if (!version.ok) {
+    throw new Error(`llama-server --version 失败（退出码 ${version.exitCode ?? 'unknown'}）：${version.output}`)
+  }
+  if (!version.output) throw new Error('llama-server --version 没有输出')
+  const devices = await probe(exePath, '--list-devices')
+  if (!devices.ok) {
+    throw new Error(`llama-server --list-devices 失败（退出码 ${devices.exitCode ?? 'unknown'}）：${devices.output}`)
+  }
+  const lines = devices.output
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+  if (lines.length === 0) throw new Error('llama-server --list-devices 没有输出设备列表')
+  return lines
+}
+
 const defaultSpawnPorts: RuntimeSpawnPorts = {
   spawn: (file, args, options) =>
     spawn(file, args, { ...options, stdio: ['ignore', 'pipe', 'pipe'] }) as unknown as ChildHandle,
@@ -357,7 +425,7 @@ const defaultSpawnPorts: RuntimeSpawnPorts = {
   }
 }
 
-function defaultInstallerPorts(fetchFn: FetchFn): InstallerPorts {
+export function defaultInstallerPorts(fetchFn: FetchFn, probe: RuntimeProbe = runProbe): InstallerPorts {
   return {
     download: async ({ url, dest, onProgress, signal }) => {
       await downloadFile({ url, dest, fetchFn, onProgress, signal })
@@ -371,18 +439,6 @@ function defaultInstallerPorts(fetchFn: FetchFn): InstallerPorts {
         )
       )
     },
-    validate: async (exePath) => {
-      const run = (flag: string) =>
-        new Promise<string>((resolve) =>
-          execFile(exePath, [flag], { windowsHide: true, timeout: 15_000 }, (error, stdout, stderr) =>
-            resolve(error ? '' : `${stdout}${stderr}`)
-          )
-        )
-      const devices = await run('--list-devices')
-      return devices
-        .split(/\r?\n/)
-        .map((line) => line.trim())
-        .filter(Boolean)
-    }
+    validate: (exePath) => probeRuntime(exePath, probe)
   }
 }
