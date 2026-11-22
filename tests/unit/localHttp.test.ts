@@ -66,4 +66,32 @@ describe('downloadFile', () => {
     await expect(downloadFile({ url: 'http://x/file', dest, fetchFn })).rejects.toThrow('HTTP 404')
     expect(await readFile(`${dest}.part`, 'utf8')).toBe('ab')
   })
+
+  it('recovers from 416 by dropping the .part and retrying without Range', async () => {
+    const { dest } = await tempFile()
+    await writeFile(`${dest}.part`, 'wxyz')
+    const ranges: Array<string | undefined> = []
+    const fetchFn: FetchFn = async (_url, init) => {
+      ranges.push((init?.headers as Record<string, string> | undefined)?.Range)
+      if (ranges.length === 1) return new Response(null, { status: 416 })
+      return new Response(bodyOf('abcd'), { status: 200, headers: { 'content-length': '4' } })
+    }
+    const result = await downloadFile({ url: 'http://x/file', dest, fetchFn })
+    expect(ranges).toEqual(['bytes=4-', undefined])
+    expect(await readFile(dest, 'utf8')).toBe('abcd')
+    expect(result).toEqual({ received: 4, total: 4 })
+  })
+
+  it('rewrites from scratch when the 206 range start mismatches the .part size', async () => {
+    const { dest } = await tempFile()
+    await writeFile(`${dest}.part`, 'ab')
+    const fetchFn: FetchFn = async () =>
+      new Response(bodyOf('abcd'), {
+        status: 206,
+        headers: { 'content-range': 'bytes 0-3/4', 'content-length': '4' }
+      })
+    const result = await downloadFile({ url: 'http://x/file', dest, fetchFn })
+    expect(await readFile(dest, 'utf8')).toBe('abcd')
+    expect(result).toEqual({ received: 4, total: 4 })
+  })
 })
