@@ -22,6 +22,7 @@ const local: LocalApi = {
   resumeDownload: (id) => ipcRenderer.invoke('tokenhub:local:resumeDownload', id),
   cancelDownload: (id) => ipcRenderer.invoke('tokenhub:local:cancelDownload', id),
   setHfToken: (token) => ipcRenderer.invoke('tokenhub:local:setHfToken', token),
+  chooseModelsDir: () => ipcRenderer.invoke('tokenhub:local:chooseModelsDir'),
   revealModelsDir: () => ipcRenderer.invoke('tokenhub:local:revealModelsDir'),
   onState: (cb: (snapshot: LocalSnapshot) => void) => {
     const handler = (_event: unknown, snapshot: LocalSnapshot) => cb(snapshot)

@@ -86,6 +86,14 @@ export function registerIpc(
   ipcMain.handle('tokenhub:local:pauseDownload', (_e, id: string) => local.pauseDownload(id))
   ipcMain.handle('tokenhub:local:resumeDownload', (_e, id: string) => local.resumeDownload(id))
   ipcMain.handle('tokenhub:local:cancelDownload', (_e, id: string) => local.cancelDownload(id))
+  ipcMain.handle('tokenhub:local:chooseModelsDir', async () => {
+    const picked = await dialog.showOpenDialog({
+      title: '选择模型目录',
+      defaultPath: local.getModelsDir(),
+      properties: ['openDirectory', 'createDirectory']
+    })
+    return picked.canceled || picked.filePaths.length === 0 ? null : picked.filePaths[0]
+  })
   ipcMain.handle('tokenhub:local:revealModelsDir', async () => {
     await shell.openPath(local.getModelsDir())
   })

@@ -22,6 +22,7 @@ export function LocalSettingsCard({ snapshot, onError }: { snapshot: LocalSnapsh
   const [context, setContext] = useState(String(settings.defaultContext))
   const [token, setToken] = useState('')
   const [saving, setSaving] = useState(false)
+  const [picking, setPicking] = useState(false)
   // Token 单独保存：输入框永远是空的，只在本次输入非空或显式清除时才写 secrets.bin。
   const [savingToken, setSavingToken] = useState(false)
 
@@ -44,6 +45,21 @@ export function LocalSettingsCard({ snapshot, onError }: { snapshot: LocalSnapsh
     settings.hfEndpointCustom,
     settings.defaultContext
   ])
+
+  async function pickModelsDir() {
+    setPicking(true)
+    try {
+      const picked = await window.tokenhub.local.chooseModelsDir()
+      if (!picked) return
+      setModelsDir(picked)
+      // 选目录即生效，避免用户选完忘记再点保存。
+      await window.tokenhub.local.updateSettings({ modelsDir: picked })
+    } catch (error) {
+      onError(`选择模型目录失败：${errorMessage(error)}`)
+    } finally {
+      setPicking(false)
+    }
+  }
 
   async function save() {
     const portValue = Number(port)
@@ -112,7 +128,22 @@ export function LocalSettingsCard({ snapshot, onError }: { snapshot: LocalSnapsh
       <div className="mt-3 grid gap-3 md:grid-cols-2">
         <label className="text-xs text-muted">
           模型目录（留空使用数据目录/models）
-          <input className={`${input} mt-1`} value={modelsDir} onChange={(event) => setModelsDir(event.target.value)} />
+          <div className="mt-1 flex gap-2">
+            <input
+              className={`${input} min-w-0 flex-1`}
+              value={modelsDir}
+              placeholder="例如 E:\\models"
+              onChange={(event) => setModelsDir(event.target.value)}
+            />
+            <button
+              type="button"
+              onClick={() => void pickModelsDir()}
+              disabled={picking}
+              className="inline-flex h-9 shrink-0 items-center rounded-lg border border-line bg-surface px-3 text-xs font-medium text-ink transition-colors hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {picking ? '选择中…' : '选择目录'}
+            </button>
+          </div>
         </label>
         <label className="text-xs text-muted">
           推理端口

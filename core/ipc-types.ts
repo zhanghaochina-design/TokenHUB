@@ -53,6 +53,7 @@ export interface LocalApi {
   resumeDownload(id: string): Promise<LocalSnapshot>
   cancelDownload(id: string): Promise<LocalSnapshot>
   setHfToken(token: string | null): Promise<LocalSnapshot>
+  chooseModelsDir(): Promise<string | null>
   revealModelsDir(): Promise<void>
   // 返回退订函数；快照由主进程节流后推送，订阅者不必自己轮询。
   onState(cb: (snapshot: LocalSnapshot) => void): () => void

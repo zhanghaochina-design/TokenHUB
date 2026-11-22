@@ -65,6 +65,8 @@ test('shows HF search, download queue and local settings', async () => {
     await expect(win.getByText('HuggingFace 模型')).toBeVisible()
     await expect(win.getByText('下载队列')).toBeVisible()
     await expect(win.getByText('本地设置')).toBeVisible()
+    // 模型目录必须能通过系统文件夹选择器回填，而不是只能手输。
+    await expect(win.getByRole('button', { name: '选择目录' })).toBeVisible()
     // Token 输入永不明文回显：类型固定为 password 且初始为空。
     await expect(win.getByLabel('HF Token（未设置；Gated 模型需要）')).toHaveAttribute('type', 'password')
     await expect(win.getByLabel('HF Token（未设置；Gated 模型需要）')).toHaveValue('')
