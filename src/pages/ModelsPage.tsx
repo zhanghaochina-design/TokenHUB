@@ -339,7 +339,10 @@ export function ModelsPage({ state, onOpenProviders }: ModelsPageProps) {
                       {!provider.enabled && (
                         <span className="rounded border border-line bg-neutral-100 px-1.5 py-0.5 text-[11px] text-muted">已禁用</span>
                       )}
-                      {!provider.hasKey && <span className="text-xs text-red-700">缺少 Key</span>}
+                      {/* 本地供应商没有 Key 是正常状态（llama-server 不带鉴权），不能画成缺配置。 */}
+                      {!provider.hasKey && provider.preset !== 'local' && (
+                        <span className="text-xs text-red-700">缺少 Key</span>
+                      )}
                     </div>
                     <p className="mt-0.5 text-xs text-muted">
                       {checked > 0
@@ -359,15 +362,20 @@ export function ModelsPage({ state, onOpenProviders }: ModelsPageProps) {
                         查看结果
                       </button>
                     )}
-                    <button
-                      type="button"
-                      onClick={() => void handleScan(provider)}
-                      disabled={!provider.enabled || !provider.hasKey || total === 0 || Boolean(state.scan)}
-                      className="inline-flex h-8 items-center gap-1.5 rounded-md border border-line bg-surface px-2.5 text-xs font-medium text-ink transition-colors hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      <Activity className={`size-3.5 ${isScanning ? 'animate-pulse' : ''}`} aria-hidden="true" />
-                      {isScanning ? '扫描中…' : '扫描'}
-                    </button>
+                    {provider.preset === 'local' ? (
+                      // 本地供应商的协议能力由内置运行时决定，没有可扫描的远端入口。
+                      <span className="text-xs text-muted">托管</span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => void handleScan(provider)}
+                        disabled={!provider.enabled || !provider.hasKey || total === 0 || Boolean(state.scan)}
+                        className="inline-flex h-8 items-center gap-1.5 rounded-md border border-line bg-surface px-2.5 text-xs font-medium text-ink transition-colors hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <Activity className={`size-3.5 ${isScanning ? 'animate-pulse' : ''}`} aria-hidden="true" />
+                        {isScanning ? '扫描中…' : '扫描'}
+                      </button>
+                    )}
                   </div>
                 </li>
               )

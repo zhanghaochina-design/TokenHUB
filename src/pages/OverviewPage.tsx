@@ -192,7 +192,8 @@ function ProviderCard({
           </div>
           <p className="mt-1 text-xs">
             <span className={`font-medium ${TEXT_TONE[status.tone]}`}>{status.label}</span>
-            {!provider.hasKey && <span className="text-red-600"> · 未配置 Key</span>}
+            {/* 本地供应商走内置 llama-server，本来就没有 Key：不能提示成未配置。 */}
+            {!provider.hasKey && provider.preset !== 'local' && <span className="text-red-600"> · 未配置 Key</span>}
           </p>
         </div>
         <button

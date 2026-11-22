@@ -191,6 +191,21 @@ export class RuntimeInstaller {
     return install
   }
 
+  /**
+   * 安装成功后清掉同一后端的其它版本目录：`remove()` 是唯一会回收磁盘的路径，而它只能跑到
+   * 用户显式卸载；不在这里剪枝，每次升级都会留下整套旧运行时（数百 MB 到数 GB）。
+   * 当前 tag 已换到正式目录，其余目录都是被替换掉的旧版本或残留 staging。
+   */
+  private async pruneSiblings(backend: LocalBackend, keepTag: string): Promise<void> {
+    const backendDir = join(this.runtimeRoot, backend)
+    const entries = await readdir(backendDir, { withFileTypes: true }).catch(() => [])
+    for (const entry of entries) {
+      if (entry.name === keepTag) continue
+      // 剪枝是尽力而为：旧目录被正在退出的 llama-server 句柄占用时不能让刚成功的安装变失败。
+      await rm(join(backendDir, entry.name), { recursive: true, force: true }).catch(() => {})
+    }
+  }
+
   /** 扫描 release 列表 → 下载所需 zip（可走镜像）→ 解压到 `.tmp` → 校验 → 换目录 → 写记录。 */
   async install(backend: LocalBackend): Promise<RuntimeInstall> {
     this.options.signal?.throwIfAborted()
@@ -200,21 +215,27 @@ export class RuntimeInstaller {
     for (const asset of selected.assets) assertSafePathSegment(asset.name, '资产名')
 
     const staging = `${join(this.runtimeRoot, backend, selected.tag)}.tmp`
+    let zips: string[] = []
     try {
-      const zips = await this.downloadAssets(selected.assets)
+      zips = await this.downloadAssets(selected.assets)
       await rm(staging, { recursive: true, force: true })
       await mkdir(staging, { recursive: true })
       // 多个 zip 解压进同一个 staging，所以 extract 必须是追加解压（见 InstallerPorts 契约）。
       for (const zip of zips) await this.options.ports.extract(zip, staging)
-      return await this.finalize({
+      const install = await this.finalize({
         backend,
         tag: selected.tag,
         staging,
         sourceUrl: selected.assets.map((asset) => asset.url).join(' ')
       })
+      await this.pruneSiblings(backend, selected.tag)
+      return install
     } catch (error) {
       await rm(staging, { recursive: true, force: true })
       throw error
+    } finally {
+      // zip 只服务这一次安装：留着只会占满下载目录（CUDA 两个包加起来近 300 MB），成功失败都要删。
+      for (const zip of zips) await rm(zip, { force: true }).catch(() => {})
     }
   }
 

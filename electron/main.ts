@@ -20,6 +20,9 @@ let tray: Tray | null = null
 let hub: Hub | null = null
 let localService: LocalService | null = null
 let quitting = false
+// 退出流程只能跑一次：before-quit 会被多次触发（窗口关闭 + app.quit + 二次点击托盘「退出」），
+// 并发跑两遍 shutdown 会重复 kill/落盘，也会让 app.exit 被提前调用。
+let shutdownStarted = false
 
 // 必须在 ready 前改 userData，否则 secrets/config 会先落到默认目录。
 // setPath 要求目录已存在，覆盖目录由调用方指定，先补建以免自定义目录不存在时直接崩溃。
@@ -195,11 +198,18 @@ if (!app.requestSingleInstanceLock()) {
     if (!hub?.getState().settings.closeToTray) app.quit()
   })
 
-  // Electron 不会等待异步监听器，但这里先置 quitting 再关闭本地运行时与 Hub，尽量让端口与定时器先释放。
+  // Electron 不会等待异步监听器：第一次 before-quit 先拦下默认退出，异步关完本地运行时与 Hub 后
+  // 用 app.exit(0) 收尾；后续重复触发的 before-quit 直接返回，不会插进正在进行的关闭流程。
   // 本地运行时排在最前：先杀掉 llama-server，Hub 关闭时在途的本地请求会立即失败，而不是挂在将死的上游上。
-  app.on('before-quit', async () => {
+  app.on('before-quit', (event) => {
+    if (shutdownStarted) return
+    shutdownStarted = true
+    event.preventDefault()
     quitting = true
-    await localService?.shutdown().catch((error) => console.error('TokenHUB local runtime shutdown failed:', error))
-    await hub?.shutdown().catch((error) => console.error('TokenHUB shutdown failed:', error))
+    void (async () => {
+      await localService?.shutdown().catch((error) => console.error('TokenHUB local runtime shutdown failed:', error))
+      await hub?.shutdown().catch((error) => console.error('TokenHUB shutdown failed:', error))
+      app.exit(0)
+    })()
   })
 }

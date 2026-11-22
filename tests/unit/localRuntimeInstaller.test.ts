@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -178,6 +178,8 @@ describe('RuntimeInstaller failures', () => {
     expect(await exists(`${runtimeDir(dataDir, 'vulkan', 'b12627')}.tmp`)).toBe(false)
     expect(await exists(runtimeDir(dataDir, 'vulkan', 'b12627'))).toBe(false)
     expect(await installer.listInstalled()).toEqual([])
+    // 失败路径同样要删掉已下载的 zip：否则坏包每重试一次就多留一份。
+    expect(await exists(join(dataDir, 'local', 'downloads', 'runtime', 'llama-b12627-bin-win-vulkan-x64.zip'))).toBe(false)
   })
 
   it('rejects an archive without llama-server.exe and writes no record', async () => {
@@ -239,6 +241,28 @@ describe('RuntimeInstaller failures', () => {
     expect(await broken.listInstalled()).toEqual([previous])
     expect(await readFile(previous.exePath, 'utf8')).toBe('exe')
     expect(await exists(`${runtimeDir(dataDir, 'vulkan', 'b12627')}.tmp`)).toBe(false)
+  })
+
+  it('prunes older runtime versions and deletes the downloaded zips', async () => {
+    const dataDir = await tempDataDir()
+    // 上一版本留下的整套运行时目录：升级后必须被清掉，否则磁盘永远只能靠用户手动卸载回收。
+    const stale = runtimeDir(dataDir, 'vulkan', 'b10000')
+    await mkdir(stale, { recursive: true })
+    await writeFile(join(stale, 'llama-server.exe'), 'old')
+    const downloadDir = join(dataDir, 'local', 'downloads', 'runtime')
+    await mkdir(downloadDir, { recursive: true })
+    const zip = join(downloadDir, 'llama-b12627-bin-win-vulkan-x64.zip')
+    await writeFile(zip, 'stale')
+
+    const installer = makeInstaller(dataDir)
+    const install = await installer.install('vulkan')
+
+    expect(install.tag).toBe('b12627')
+    expect(await readFile(install.exePath, 'utf8')).toBe('exe')
+    expect(await exists(stale)).toBe(false)
+    expect(await readdir(join(dataDir, 'local', 'runtime', 'vulkan'))).toEqual(['b12627'])
+    // 安装用的 zip 是一次性中间产物：成功后不能留在下载目录里占空间。
+    expect(await exists(zip)).toBe(false)
   })
 
   it('drops the record and the directory on remove', async () => {

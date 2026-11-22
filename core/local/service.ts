@@ -9,7 +9,7 @@ import { downloadFile, type FetchFn } from './http'
 import { scanModels, shardPaths } from './library'
 import { LocalRuntime, type ChildHandle, type RuntimeSpawnPorts } from './runtime'
 import { RuntimeInstaller, type InstallerPorts } from './runtimeInstaller'
-import { DEFAULT_LOCAL_SETTINGS, hfBaseUrl, normalizeLocalSettings } from './settings'
+import { DEFAULT_LOCAL_SETTINGS, MAX_CONTEXT_TOKENS, MIN_CONTEXT_TOKENS, hfBaseUrl, normalizeLocalSettings } from './settings'
 import type {
   BackendPreference,
   DownloadTask,
@@ -93,6 +93,17 @@ export interface LocalServiceOptions {
 function emptyHardware(): HardwareReport {
   return { gpus: [], recommendedBackend: 'cpu', detectedAt: '', error: '尚未检测' }
 }
+
+// 显式上下文长度来自渲染进程（用户可以填任意数字）：越界值直接传给 llama-server 会让它启动失败或
+// 按模型上限偷改，和设置页同一区间收敛后再下发。
+function clampContext(value: number | undefined, fallback: number): number {
+  if (value === undefined || !Number.isFinite(value)) return fallback
+  return Math.min(MAX_CONTEXT_TOKENS, Math.max(MIN_CONTEXT_TOKENS, Math.floor(value)))
+}
+
+// 启动自检探针：本地端口已被一个「上次没退干净的 llama-server」占用时，新进程会因为绑定失败而
+// 静默路由到那个旧模型。只报警，不杀进程（可能是用户自己起的服务）。
+const STALE_PROBE_TIMEOUT_MS = 1_500
 
 // 快照广播的节流窗口：llama-server 的日志是逐行刷新的，不合并会把 IPC 打满。
 const EMIT_THROTTLE_MS = 300
@@ -183,6 +194,7 @@ export class LocalService {
       }
     }
     if (this.options.modelsDirOverride) this.settings.modelsDir = this.options.modelsDirOverride
+    await this.probeStaleRuntime()
     await mkdir(this.modelsDir, { recursive: true }).catch(() => {})
     this.installs = await this.installer.listInstalled()
     await this.detect()
@@ -214,6 +226,32 @@ export class LocalService {
 
   get baseUrl(): string {
     return `http://127.0.0.1:${this.settings.localPort}/v1`
+  }
+
+  /**
+   * 启动时探一次 `/health`：上次退出被打断（强杀、崩溃）留下的 llama-server 会继续占着端口，
+   * 本实例随后加载模型才会因绑定失败暴露问题，且请求会静默打到旧模型上。
+   * 只写 WARN，不结束未知进程：那可能是用户自己的服务。
+   */
+  private async probeStaleRuntime(): Promise<void> {
+    const port = this.settings.localPort
+    try {
+      const response = await this.fetchFn(`http://127.0.0.1:${port}/health`, {
+        signal: AbortSignal.timeout(STALE_PROBE_TIMEOUT_MS)
+      })
+      await response.body?.cancel().catch(() => {})
+      if (!response.ok) return
+      // 已经由本实例启动过运行时就不算「残留」，避免重复告警。
+      if (this.runtime.getStatus().phase !== 'stopped') return
+      await this.options.logger?.warn(`local port ${port} already responds before load; a stale llama-server may be running`)
+    } catch {
+      // 端口空闲（ECONNREFUSED）或超时都是正常情况：探测只用于报警，绝不能拖住启动。
+    }
+  }
+
+  // 后端选择口径：设置里的显式值优先，auto 时用硬件推荐。安装与导入必须共用，否则二者会落到不同目录。
+  private resolveBackend(): LocalBackend {
+    return this.settings.backend === 'auto' ? this.hardware.recommendedBackend : this.settings.backend
   }
 
   private installFor(backend: LocalBackend): RuntimeInstall | null {
@@ -287,8 +325,7 @@ export class LocalService {
   async installRuntime(backend?: LocalBackend): Promise<LocalSnapshot> {
     // 不传后端时沿用设置；显式传值（哪怕是空串）一律按白名单校验。
     const requested = backend === undefined ? undefined : this.assertBackend(backend)
-    const target =
-      requested ?? (this.settings.backend === 'auto' ? this.hardware.recommendedBackend : this.settings.backend)
+    const target = requested ?? this.resolveBackend()
     this.beginInstall()
     try {
       const install = await this.installer.install(target)
@@ -302,7 +339,8 @@ export class LocalService {
   }
 
   async importRuntimeZip(zipPath: string): Promise<LocalSnapshot> {
-    const backend = this.hardware.recommendedBackend
+    // 与 installRuntime 同一口径：用户在设置里指定了后端时，导入必须落到同一个后端目录。
+    const backend = this.resolveBackend()
     this.beginInstall()
     try {
       const install = await this.installer.importZip(zipPath, backend)
@@ -352,7 +390,7 @@ export class LocalService {
     await this.runtime.load(
       { modelId: model.id, modelPath: join(this.modelsDir, model.path) },
       install.backend,
-      contextSize ?? this.settings.defaultContext
+      clampContext(contextSize, this.settings.defaultContext)
     )
     const status = this.runtime.getStatus()
     if (status.phase !== 'running') {
@@ -464,8 +502,10 @@ export class LocalService {
       clearTimeout(this.emitTimer)
       this.emitTimer = null
     }
-    await this.downloads?.shutdown()
+    // 先杀 llama-server 再停下载：下载收尾（落盘、拖到超时）期间进程仍在跑，退出后就会变成孤儿
+    // 进程占着端口。runtime.shutdown 不依赖下载队列，因此顺序调换是安全的。
     await this.runtime.shutdown()
+    await this.downloads?.shutdown()
   }
 
   getModelsDir(): string {

@@ -42,6 +42,20 @@ export function HardwareCard({ snapshot, onError }: { snapshot: LocalSnapshot; o
     }
   }
 
+  // 卸载是唯一的磁盘回收路径（重装会清旧目录，但用户想彻底释放空间只能走这里），必须给到界面。
+  async function removeRuntime() {
+    if (!install) return
+    if (!window.confirm(`卸载 ${install.backend.toUpperCase()} 运行时（${install.tag}）？卸载后需要重新安装才能加载模型。`)) return
+    setBusy(true)
+    try {
+      await window.tokenhub.local.removeRuntime(install.backend)
+    } catch (error) {
+      onError(`卸载失败：${errorMessage(error)}`)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <section className="rounded-lg border border-line bg-surface p-5 shadow-sm">
       <h2 className="text-sm font-semibold text-ink">显卡与后端</h2>
@@ -102,6 +116,16 @@ export function HardwareCard({ snapshot, onError }: { snapshot: LocalSnapshot; o
         >
           导入运行时 ZIP
         </button>
+        {install ? (
+          <button
+            type="button"
+            onClick={() => void removeRuntime()}
+            disabled={installing}
+            className="inline-flex h-9 items-center rounded-lg border border-red-200 bg-surface px-3 text-sm font-medium text-red-700 transition-colors hover:bg-red-50 disabled:opacity-60"
+          >
+            卸载运行时
+          </button>
+        ) : null}
       </div>
     </section>
   )

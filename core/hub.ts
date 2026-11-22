@@ -119,6 +119,8 @@ function localProviderUnchanged(
 ): boolean {
   if (provider.preset !== 'local' || provider.quotaAdapter !== 'none' || provider.maxConcurrency !== 1) return false
   if (provider.baseUrl !== baseUrl || provider.models.manual.length > 0) return false
+  // lastSyncedAt 为 null 表示上一次同步没落盘成（见 syncLocalProvider 的 catch）：内容看起来一样也必须重试。
+  if (provider.models.lastSyncedAt === null) return false
   const cached = provider.models.cached
   if (cached.length !== models.length || !cached.every((model) => models.includes(model))) return false
   return stableJson(provider.modelDiscovery ?? {}) === stableJson(meta ?? {})
@@ -313,8 +315,16 @@ export class Hub {
     provider.models.manual = []
     provider.models.lastSyncedAt = this.now().toISOString()
     provider.modelDiscovery = meta
-    await this.persistConfig()
+    // 先重建目录再落盘：写盘可能因磁盘/句柄失败，路由目录不能停在上一次的旧模型列表上。
     this.rebuildCatalog()
+    try {
+      await this.persistConfig()
+    } catch (error) {
+      // 内存里已是新值，下一次相同内容的同步会被变更检测提前返回、永不补写；清掉 lastSyncedAt
+      // 让 localProviderUnchanged 判定为「未同步完成」，从而重试落盘。
+      provider.models.lastSyncedAt = null
+      throw error
+    }
     this.emit()
   }
 

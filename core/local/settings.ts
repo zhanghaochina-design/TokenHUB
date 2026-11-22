@@ -13,6 +13,10 @@ export const DEFAULT_LOCAL_SETTINGS: LocalSettings = {
 const BACKENDS = new Set<BackendPreference>(['auto', 'cuda', 'vulkan', 'rocm', 'cpu'])
 const ENDPOINTS = new Set<HfEndpointKind>(['official', 'mirror', 'custom'])
 
+// 上下文长度上下限：设置页与加载模型（含 IPC 传入的显式值）都用这一组区间收敛。
+export const MIN_CONTEXT_TOKENS = 512
+export const MAX_CONTEXT_TOKENS = 262144
+
 function intInRange(raw: unknown, fallback: number, min: number, max: number): number {
   const value = typeof raw === 'number' ? raw : Number(raw)
   return Number.isInteger(value) && value >= min && value <= max ? value : fallback
@@ -32,7 +36,7 @@ export function normalizeLocalSettings(raw: unknown): LocalSettings {
     hfEndpointCustom:
       typeof input.hfEndpointCustom === 'string' ? input.hfEndpointCustom.trim().replace(/\/+$/, '') : '',
     githubMirror: typeof input.githubMirror === 'string' ? input.githubMirror.trim() : '',
-    defaultContext: intInRange(input.defaultContext, DEFAULT_LOCAL_SETTINGS.defaultContext, 512, 262144)
+    defaultContext: intInRange(input.defaultContext, DEFAULT_LOCAL_SETTINGS.defaultContext, MIN_CONTEXT_TOKENS, MAX_CONTEXT_TOKENS)
   }
 }
 

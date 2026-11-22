@@ -83,6 +83,8 @@ interface HarnessOptions {
   hf?: HfPort
   downloads?: DownloadManagerPort
   onSnapshot?: (snapshot: LocalSnapshot) => void
+  /** 硬件探测结果：导入/安装的后端选择在 auto 时要读它。 */
+  recommendedBackend?: LocalBackend
 }
 
 async function createHarness(options: HarnessOptions = {}) {
@@ -97,7 +99,12 @@ async function createHarness(options: HarnessOptions = {}) {
 
   const synced: SyncRecord[] = []
   // 记录安装器收到的后端值：安全修复要求非法值根本到不了 installer.install / remove。
-  const calls = { install: [] as LocalBackend[], remove: [] as LocalBackend[], importZip: 0 }
+  const calls = {
+    install: [] as LocalBackend[],
+    importBackends: [] as LocalBackend[],
+    remove: [] as LocalBackend[],
+    importZip: 0
+  }
   const state = {
     loaded: false,
     modelId: null as string | null,
@@ -127,7 +134,11 @@ async function createHarness(options: HarnessOptions = {}) {
     fetchFn: options.fetchFn,
     hf: options.hf,
     downloads: options.downloads,
-    detect: async () => ({ gpus: [], recommendedBackend: 'vulkan', detectedAt: '2026-01-01T00:00:00.000Z' }),
+    detect: async () => ({
+      gpus: [],
+      recommendedBackend: options.recommendedBackend ?? 'vulkan',
+      detectedAt: '2026-01-01T00:00:00.000Z'
+    }),
     installer: {
       install: async (backend) => {
         calls.install.push(backend)
@@ -135,8 +146,9 @@ async function createHarness(options: HarnessOptions = {}) {
         if (options.installFails) throw new Error('llama-server --version 失败（退出码 3221225781）')
         return install
       },
-      importZip: async () => {
+      importZip: async (_zipPath, backend) => {
         calls.importZip += 1
+        calls.importBackends.push(backend)
         if (options.installGate) await options.installGate
         return install
       },
@@ -218,6 +230,30 @@ describe('LocalService', () => {
     await service.stopModel()
     expect(synced.at(-1)).toEqual({ baseUrl: 'http://127.0.0.1:8788/v1', models: [] })
     expect(service.getSnapshot().models[0].loaded).toBe(false)
+    await service.shutdown()
+  })
+
+  it('clamps an explicit context size into the range accepted by the settings page', async () => {
+    const { service, state } = await createHarness({ files: ['Qwen3-8B-Q4_K_M.gguf'] })
+
+    // 上下文长度由界面直接传进 IPC：越界值不能原样交给 llama-server（过大直接 OOM、过小起不来）。
+    await service.loadModel('Qwen3-8B-Q4_K_M', 999999999)
+    expect(state.contextLength).toBe(262144)
+
+    await service.loadModel('Qwen3-8B-Q4_K_M', 1)
+    expect(state.contextLength).toBe(512)
+    await service.shutdown()
+  })
+
+  it('imports a runtime zip into the backend chosen in settings, not the hardware match', async () => {
+    // 硬件推荐 cuda，但用户在设置里固定了 vulkan：导入必须与安装同口径，否则会落到另一个后端目录。
+    const { service, calls } = await createHarness({ files: [], installs: [], recommendedBackend: 'cuda' })
+    await service.updateSettings({ backend: 'vulkan' })
+
+    await service.importRuntimeZip('C:/llama.zip')
+
+    expect(calls.importBackends).toEqual(['vulkan'])
+    expect(calls.install).toEqual([])
     await service.shutdown()
   })
 

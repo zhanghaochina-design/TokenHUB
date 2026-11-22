@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { connect, createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -777,6 +777,23 @@ describe('local provider sync and guards', () => {
     // 只有内容真的变了才推进同步时间
     await hub.syncLocalProvider({ baseUrl, models: ['m', 'n'] })
     expect(hub.getState().providers[0].models.lastSyncedAt).not.toBe(first)
+    await hub.shutdown()
+  })
+
+  it('rebuilds the catalog before persisting and retries a failed sync', async () => {
+    const { hub, dir } = await boot()
+    // 用目录占住配置文件的落点：原子写的 rename 必然失败（不是短暂占用，重试也不会成功）。
+    await mkdir(join(dir, 'config.json'), { recursive: true })
+
+    await expect(hub.syncLocalProvider({ baseUrl, models: ['m'] })).rejects.toThrow()
+
+    // 写盘失败不能让路由目录停在旧模型列表上；lastSyncedAt 归零，下一次相同同步才会重试落盘。
+    expect(hub.getState().catalog.map((model) => model.id)).toEqual(['m'])
+    expect(hub.getState().providers[0].models.lastSyncedAt).toBeNull()
+
+    await rm(join(dir, 'config.json'), { recursive: true, force: true })
+    await hub.syncLocalProvider({ baseUrl, models: ['m'] })
+    expect(hub.getState().providers[0].models.lastSyncedAt).not.toBeNull()
     await hub.shutdown()
   })
 

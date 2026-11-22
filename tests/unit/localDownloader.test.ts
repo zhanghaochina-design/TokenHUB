@@ -262,6 +262,30 @@ describe('DownloadManager', () => {
     await manager.shutdown()
   })
 
+  it('reports an auth failure as a token hint instead of the raw HTTP error', async () => {
+    for (const status of [401, 403]) {
+      const dataDir = await mkdtemp(join(tmpdir(), 'tokenhub-dl-'))
+      const manager = await DownloadManager.open({
+        dataDir,
+        modelsDir: () => join(dataDir, 'models'),
+        baseUrl: () => 'https://huggingface.co',
+        token: () => null,
+        fetchFn: async () => new Response('denied', { status }),
+        freeSpace: async () => 10 * GB
+      })
+
+      await manager.enqueue('Org/Repo', ['gated.gguf'])
+      await manager.waitForIdle()
+
+      // 401/403 对 HF 是「缺 Token 或未授权」：原样抛 `download failed: HTTP 401 ...` 会把用户引向网络排查。
+      expect(manager.getTasks()[0]).toMatchObject({
+        phase: 'error',
+        error: '需要 HuggingFace Token（或该模型需要授权）'
+      })
+      await manager.shutdown()
+    }
+  })
+
   it('rejects a duplicate task for a file that is already queued or downloading', async () => {
     const dataDir = await mkdtemp(join(tmpdir(), 'tokenhub-dl-'))
     const modelsDir = join(dataDir, 'models')

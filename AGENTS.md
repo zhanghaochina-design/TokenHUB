@@ -66,7 +66,8 @@
 - HF 源只在 `hfBaseUrl` 一处推导（官方 / `hf-mirror.com` / 自定义），API 请求统一 15s 超时并覆盖响应体读取；401/403 提示「需要 Token 或需要授权」而不是网络故障，仓库 ID 必须是 `org/repo` 且拒绝 `.`/`..`。
 - 下载用 `.part` + Range 断点续传；入队前要求模型目录可用空间 ≥2 GB（`MIN_FREE_BYTES`），并拒绝同一仓库同一文件的活动任务重叠——两条任务写同一个 `.part` 会拼出坏文件。重启时只把非终态任务降级为 paused，绝不自动续传。
 - 分片模型要整组 `-0000N-of-0000M` 齐全才进列表，删除必须走 `shardPaths(model)` 逐片删（只删第一个分片会留下永远拼不起来的残片）；`.gguf.part` 与 `mmproj-*` 不参与扫描。
-- `LocalService.open` 在窗口创建前跑硬件探测与模型扫描，探测必须带超时且失败降级为「空列表 + 错误文案」，否则挂住的 PowerShell 会让窗口不出现；llama-server 就绪探针单次上限 5s，`/props` 在途时发生停止/退出，状态不得被翻回 `running`。
+- `LocalService.open` 在窗口创建前跑硬件探测与模型扫描，探测必须带超时且失败降级为「空列表 + 错误文案」，否则挂住的 PowerShell 会让窗口不出现；llama-server 就绪探针单次上限 5s，`/props` 在途时发生停止/退出，状态不得被翻回 `running`。启动时还会 GET 一次 `127.0.0.1:<localPort>/health`（1.5s 超时）：有响应且本实例没启动运行时只写 WARN（残留 llama-server 可能占着端口），不得结束未知进程。
+- 运行时生命周期：安装成功后剪掉 `<dataDir>/local/runtime/<backend>/` 下除当前 tag 外的目录并删除已下载的 zip（成功失败都删），旧版本不再累积；卸载入口是硬件卡的「卸载运行时」（确认后调 `removeRuntime`），也是唯一彻底回收磁盘的路径。导入 ZIP 的后端与安装同口径（`settings.backend`，`auto` 时用硬件推荐），`loadModel` 的显式 `contextSize` 按 512–262144 夹取（`MIN_CONTEXT_TOKENS`/`MAX_CONTEXT_TOKENS`）。退出是确定性流程：首次 `before-quit` 拦下默认退出并置 `shutdownStarted`，等 `localService.shutdown()`（先停 llama-server 再停下载队列）与 `hub.shutdown()` 各自结束（含失败）后 `app.exit(0)`，后续 `before-quit` 直接返回。
 
 ## 验证门
 

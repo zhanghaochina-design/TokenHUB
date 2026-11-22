@@ -102,6 +102,13 @@ function restoredTasks(parsed: unknown): DownloadTask[] {
   return tasks
 }
 
+// 401/403 在 HF 上意味着缺 Token 或未同意访问条款（与 hf.ts 同一口径）：直接把原始 HTTP 码
+// 抛给界面会把用户引到「网络故障」的错方向，任务卡在 error 也说不清该做什么。
+function describeDownloadError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error)
+  return /HTTP (401|403)\b/.test(message) ? '需要 HuggingFace Token（或该模型需要授权）' : message
+}
+
 export class DownloadManager {
   private tasks: DownloadTask[] = []
   private readonly aborters = new Map<string, AbortController>()
@@ -286,7 +293,7 @@ export class DownloadManager {
         // 用户主动暂停不算失败：保留已下载的字节等续传。
         this.update(id, { phase: 'paused', speedBps: null })
       } else {
-        this.update(id, { phase: 'error', error: error instanceof Error ? error.message : String(error), speedBps: null })
+        this.update(id, { phase: 'error', error: describeDownloadError(error), speedBps: null })
       }
     } finally {
       this.aborters.delete(id)
