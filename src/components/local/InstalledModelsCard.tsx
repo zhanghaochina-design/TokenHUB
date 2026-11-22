@@ -8,6 +8,10 @@ function size(bytes: number): string {
 
 export function InstalledModelsCard({ snapshot, onError }: { snapshot: LocalSnapshot; onError: (message: string) => void }) {
   const [busyId, setBusyId] = useState<string | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [scanning, setScanning] = useState(false)
+  // 加载/删除/扫描都会动模型目录或运行时进程，任意一项在途时禁止再发起另一项。
+  const blocked = busyId !== null || deletingId !== null || scanning
 
   async function load(id: string) {
     setBusyId(id)
@@ -22,18 +26,24 @@ export function InstalledModelsCard({ snapshot, onError }: { snapshot: LocalSnap
 
   async function remove(id: string) {
     if (!window.confirm(`确定删除本地模型「${id}」？文件将从模型目录移除。`)) return
+    setDeletingId(id)
     try {
       await window.tokenhub.local.deleteModel(id)
     } catch (error) {
       onError(`删除失败：${errorMessage(error)}`)
+    } finally {
+      setDeletingId(null)
     }
   }
 
   async function refresh() {
+    setScanning(true)
     try {
       await window.tokenhub.local.refreshModels()
     } catch (error) {
       onError(`扫描失败：${errorMessage(error)}`)
+    } finally {
+      setScanning(false)
     }
   }
 
@@ -53,8 +63,13 @@ export function InstalledModelsCard({ snapshot, onError }: { snapshot: LocalSnap
           <button type="button" onClick={() => void openDir()} className="text-xs text-muted hover:text-ink">
             打开模型目录
           </button>
-          <button type="button" onClick={() => void refresh()} className="text-xs text-muted hover:text-ink">
-            重新扫描
+          <button
+            type="button"
+            onClick={() => void refresh()}
+            disabled={scanning}
+            className="text-xs text-muted hover:text-ink disabled:opacity-60"
+          >
+            {scanning ? '扫描中…' : '重新扫描'}
           </button>
         </div>
       </div>
@@ -73,7 +88,7 @@ export function InstalledModelsCard({ snapshot, onError }: { snapshot: LocalSnap
               <button
                 type="button"
                 onClick={() => void load(model.id)}
-                disabled={busyId !== null || model.loaded}
+                disabled={blocked || model.loaded}
                 className="inline-flex h-8 items-center rounded-lg bg-accent px-3 text-xs font-medium text-white disabled:opacity-60"
               >
                 {busyId === model.id ? '加载中…' : model.loaded ? '已加载' : '加载'}
@@ -81,9 +96,10 @@ export function InstalledModelsCard({ snapshot, onError }: { snapshot: LocalSnap
               <button
                 type="button"
                 onClick={() => void remove(model.id)}
-                className="inline-flex h-8 items-center rounded-lg border border-red-200 px-3 text-xs font-medium text-red-700"
+                disabled={blocked || busyId === model.id}
+                className="inline-flex h-8 items-center rounded-lg border border-red-200 px-3 text-xs font-medium text-red-700 disabled:opacity-60"
               >
-                删除
+                {deletingId === model.id ? '删除中…' : '删除'}
               </button>
             </div>
           </li>

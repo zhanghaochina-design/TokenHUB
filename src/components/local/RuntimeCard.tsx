@@ -51,7 +51,7 @@ export function RuntimeCard({ snapshot, onError }: { snapshot: LocalSnapshot; on
       <button
         type="button"
         onClick={() => void stop()}
-        disabled={busy || runtime.phase !== 'running'}
+        disabled={busy || (runtime.phase !== 'running' && runtime.phase !== 'starting')}
         className="mt-4 inline-flex h-9 items-center rounded-lg border border-line bg-surface px-3 text-sm font-medium text-ink disabled:opacity-60"
       >
         停止模型

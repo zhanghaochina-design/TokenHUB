@@ -10,6 +10,9 @@ export function HardwareCard({ snapshot, onError }: { snapshot: LocalSnapshot; o
   const [busy, setBusy] = useState(false)
   const { hardware, install } = snapshot
   const progress = snapshot.installProgress ?? null
+  // 安装/导入共用同一个 staging 目录，进度存在即视为安装在进行：离开页面再回来 busy 会归零，
+  // 只靠 busy 会漏掉「后台还在安装」的情况，仍能再触发一次安装。
+  const installing = busy || snapshot.installProgress !== null
   // total 只有拿到 Content-Length 时才是正数；缺失或 0 时只报「第几个资产」，不编造百分比。
   const percent =
     progress && typeof progress.total === 'number' && progress.total > 0
@@ -44,8 +47,8 @@ export function HardwareCard({ snapshot, onError }: { snapshot: LocalSnapshot; o
       <h2 className="text-sm font-semibold text-ink">显卡与后端</h2>
       {hardware.error ? <p className="mt-2 text-xs text-red-600">{hardware.error}</p> : null}
       <ul className="mt-3 space-y-2">
-        {hardware.gpus.map((gpu) => (
-          <li key={gpu.name} className="flex items-center justify-between gap-3 rounded-md bg-canvas px-3 py-2">
+        {hardware.gpus.map((gpu, index) => (
+          <li key={`${gpu.name}-${index}`} className="flex items-center justify-between gap-3 rounded-md bg-canvas px-3 py-2">
             <div className="min-w-0">
               <p className="truncate text-sm text-ink">{gpu.name}</p>
               <p className="text-xs text-muted">
@@ -86,15 +89,15 @@ export function HardwareCard({ snapshot, onError }: { snapshot: LocalSnapshot; o
         <button
           type="button"
           onClick={() => void installRuntime()}
-          disabled={busy}
+          disabled={installing}
           className="inline-flex h-9 items-center rounded-lg bg-accent px-3.5 text-sm font-medium text-white disabled:opacity-60"
         >
-          {busy ? '安装中…' : install ? '重新安装运行时' : '安装运行时'}
+          {installing ? '安装中…' : install ? '重新安装运行时' : '安装运行时'}
         </button>
         <button
           type="button"
           onClick={() => void importZip()}
-          disabled={busy}
+          disabled={installing}
           className="inline-flex h-9 items-center rounded-lg border border-line bg-surface px-3 text-sm font-medium text-ink disabled:opacity-60"
         >
           导入运行时 ZIP
