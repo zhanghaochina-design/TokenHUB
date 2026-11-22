@@ -135,14 +135,15 @@ export const commandCodeAdapter: QuotaAdapter = {
       // 订阅信息缺失时月窗口仍可显示百分比，只缺重置时间。
     }
     let subscription: Record<string, unknown> = {}
-    if (orgId) {
-      try {
-        const url = `${base}/alpha/billing/subscriptions?orgId=${encodeURIComponent(orgId)}`
-        const sub = await getJson(fetchFn, url, apiKey)
-        if (sub.status !== 401) subscription = firstObject(sub.json.data, sub.json.subscription, sub.json)
-      } catch {
-        // 同上：订阅接口不可用不影响 credits 口径。
-      }
+    try {
+      // 个人账号 whoami 的 org 为 null，且把 user id 当 orgId 查询会 403；此时不带参数查当前用户订阅。
+      const url = orgId
+        ? `${base}/alpha/billing/subscriptions?orgId=${encodeURIComponent(orgId)}`
+        : `${base}/alpha/billing/subscriptions`
+      const sub = await getJson(fetchFn, url, apiKey)
+      if (sub.status !== 401) subscription = firstObject(sub.json.data, sub.json.subscription, sub.json)
+    } catch {
+      // 订阅接口不可用不影响 credits 口径。
     }
 
     const planId = text(pick(subscription, ['planId', 'plan_id'])) || text(pick(credits, ['planId', 'plan_id']))

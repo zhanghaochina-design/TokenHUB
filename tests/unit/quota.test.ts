@@ -204,12 +204,43 @@ describe('commandcode quota adapter', () => {
     expect(snapshot.note).toContain('不受 5 小时/周窗口限制')
   })
 
-  it('keeps credits data when whoami is unavailable', async () => {
-    const fetchFn = routes({ '/alpha/whoami': () => json({ error: 'boom' }, 500) })
+  it('keeps credits data when whoami and subscriptions are unavailable', async () => {
+    const fetchFn = routes({
+      '/alpha/whoami': () => json({ error: 'boom' }, 500),
+      '/alpha/billing/subscriptions': () => json({ error: 'boom' }, 500)
+    })
     const snapshot = await commandCodeAdapter.probe(ccProvider(), 'k', { fetchFn, now })
     expect(snapshot.availability).toBe('ok')
     expect(snapshot.windows?.monthly?.percent).toBeCloseTo((30 / 70) * 100)
     expect(snapshot.windows?.monthly?.resetsAt).toBeNull()
+  })
+
+  it('queries the user subscription without orgId when whoami has no org', async () => {
+    const urls: string[] = []
+    const base = routes({ '/alpha/whoami': () => json({ user: { id: 'user-1' }, org: null }) })
+    const fetchFn: ProbeFetchFn = (url, init) => {
+      urls.push(url)
+      return base(url, init)
+    }
+    const snapshot = await commandCodeAdapter.probe(ccProvider(), 'k', { fetchFn, now })
+    const subUrl = urls.find((url) => new URL(url).pathname === '/alpha/billing/subscriptions')
+    expect(subUrl).toBeDefined()
+    expect(new URL(subUrl!).searchParams.get('orgId')).toBeNull()
+    expect(snapshot.windows?.monthly?.resetsAt).toBe('2026-11-30T00:00:00.000Z')
+    expect(snapshot.note).toContain('GOAT')
+  })
+
+  it('scopes the subscription query to the org when whoami reports one', async () => {
+    const urls: string[] = []
+    const base = routes()
+    const fetchFn: ProbeFetchFn = (url, init) => {
+      urls.push(url)
+      return base(url, init)
+    }
+    await commandCodeAdapter.probe(ccProvider(), 'k', { fetchFn, now })
+    const subUrl = urls.find((url) => new URL(url).pathname === '/alpha/billing/subscriptions')
+    expect(subUrl).toBeDefined()
+    expect(new URL(subUrl!).searchParams.get('orgId')).toBe('org-1')
   })
 
   it('rejects a payload with no recognizable windows', async () => {
