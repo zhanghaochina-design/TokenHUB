@@ -182,6 +182,26 @@ describe('RuntimeInstaller failures', () => {
     expect(await exists(join(dataDir, 'local', 'downloads', 'runtime', 'llama-b12627-bin-win-vulkan-x64.zip'))).toBe(false)
   })
 
+  it('deletes the zips already downloaded when a later asset fails', async () => {
+    const dataDir = await tempDataDir()
+    const installer = makeInstaller(dataDir, {
+      // CUDA 两个包：第一个成功落地、第二个失败。已下载的 zip 不能因为整组下载没返回就漏删。
+      download: async ({ dest }) => {
+        if (dest.includes('cudart')) throw new Error('cudart 下载失败')
+        await mkdir(dirname(dest), { recursive: true })
+        await writeFile(dest, 'zip')
+      }
+    })
+
+    await expect(installer.install('cuda')).rejects.toThrow('cudart 下载失败')
+
+    expect(await exists(join(dataDir, 'local', 'downloads', 'runtime', 'llama-b12627-bin-win-cuda-12.4-x64.zip'))).toBe(
+      false
+    )
+    expect(await exists(`${runtimeDir(dataDir, 'cuda', 'b12627')}.tmp`)).toBe(false)
+    expect(await installer.listInstalled()).toEqual([])
+  })
+
   it('rejects an archive without llama-server.exe and writes no record', async () => {
     const dataDir = await tempDataDir()
     const installer = makeInstaller(dataDir, {

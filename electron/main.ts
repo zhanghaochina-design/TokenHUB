@@ -199,12 +199,14 @@ if (!app.requestSingleInstanceLock()) {
   })
 
   // Electron 不会等待异步监听器：第一次 before-quit 先拦下默认退出，异步关完本地运行时与 Hub 后
-  // 用 app.exit(0) 收尾；后续重复触发的 before-quit 直接返回，不会插进正在进行的关闭流程。
+  // 用 app.exit(0) 收尾；后续重复触发的 before-quit 也必须继续拦下默认退出，否则关闭流程没跑完进程就没了。
   // 本地运行时排在最前：先杀掉 llama-server，Hub 关闭时在途的本地请求会立即失败，而不是挂在将死的上游上。
   app.on('before-quit', (event) => {
+    // 拦下默认退出必须放在最前：`shutdownStarted` 为真时若不 preventDefault，Electron 会走默认退出，
+    // 在 `localService.shutdown()` 结束（llama-server 被杀）之前就结束进程。
+    event.preventDefault()
     if (shutdownStarted) return
     shutdownStarted = true
-    event.preventDefault()
     quitting = true
     void (async () => {
       await localService?.shutdown().catch((error) => console.error('TokenHUB local runtime shutdown failed:', error))

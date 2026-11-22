@@ -142,12 +142,18 @@ export class RuntimeInstaller {
     return selected
   }
 
-  /** 逐个资产下载（URL 走镜像），把 onProgress 折算成「第几个包」的进度再上抛。 */
-  private async downloadAssets(assets: Array<{ name: string; url: string }>): Promise<string[]> {
+  /**
+   * 逐个资产下载（URL 走镜像），把 onProgress 折算成「第几个包」的进度再上抛。
+   * `onAsset` 在**每个** zip 落地后立刻回调，调用方据此记录已下载路径：中途某个资产失败时，
+   * 前面已下载的 zip 才落在 `finally` 能看到的数组里（整体赋值只在全部成功后才发生）。
+   */
+  private async downloadAssets(
+    assets: Array<{ name: string; url: string }>,
+    onAsset: (zipPath: string) => void
+  ): Promise<void> {
     const downloadDir = join(this.options.dataDir, 'local', 'downloads', 'runtime')
     await mkdir(downloadDir, { recursive: true })
     const mirror = this.options.mirror()
-    const zips: string[] = []
     for (const [offset, asset] of assets.entries()) {
       const dest = join(downloadDir, asset.name)
       const index = offset + 1
@@ -158,9 +164,8 @@ export class RuntimeInstaller {
         onProgress: (received, total) =>
           this.options.onProgress?.({ asset: asset.name, index, count: assets.length, received, total })
       })
-      zips.push(dest)
+      onAsset(dest)
     }
-    return zips
   }
 
   /** exe 探测 → 校验 → 原子换上新目录 → 写记录。校验放在换目录前，坏包不会顶掉已有可用安装。 */
@@ -215,9 +220,11 @@ export class RuntimeInstaller {
     for (const asset of selected.assets) assertSafePathSegment(asset.name, '资产名')
 
     const staging = `${join(this.runtimeRoot, backend, selected.tag)}.tmp`
-    let zips: string[] = []
+    // 下载成功的 zip 逐个累加进这个数组（而不是等 downloadAssets 整体返回），
+    // 这样 CUDA 第二个包失败时，第一个包也能在 finally 里被删掉。
+    const zips: string[] = []
     try {
-      zips = await this.downloadAssets(selected.assets)
+      await this.downloadAssets(selected.assets, (zipPath) => zips.push(zipPath))
       await rm(staging, { recursive: true, force: true })
       await mkdir(staging, { recursive: true })
       // 多个 zip 解压进同一个 staging，所以 extract 必须是追加解压（见 InstallerPorts 契约）。
