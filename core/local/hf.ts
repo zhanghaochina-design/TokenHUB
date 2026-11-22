@@ -5,11 +5,14 @@ import type { HfModelDetail, HfModelFile, HfModelSummary } from './types'
 // HF 仓库 ID 固定为 org/repo 两段；不校验会让请求路径被 `..` 或多余斜杠带出 API 目录。
 const REPO_PATTERN = /^[\w.-]+\/[\w.-]+$/
 const GGUF_EXT = '.gguf'
+// 镜像被墙/挂死时 fetch 永不 settle，必须自带超时，否则搜索与详情会一直转圈。
+const REQUEST_TIMEOUT_MS = 15_000
 
 // 字面上 `..`/`.` 也符合 REPO_PATTERN 的字符集，必须单独拒绝，否则 resolve 地址会逃出仓库路径。
-function isRepoId(repo: string): boolean {
-  if (!REPO_PATTERN.test(repo)) return false
-  return repo.split('/').every((segment) => segment !== '.' && segment !== '..')
+// 对外导出（Task 12/13 下载层要校验仓库 ID），入参放宽到 unknown 以便直接校验 IPC/上游来的值。
+export function isRepoId(value: unknown): boolean {
+  if (typeof value !== 'string' || !REPO_PATTERN.test(value)) return false
+  return value.split('/').every((segment) => segment !== '.' && segment !== '..')
 }
 
 function trimBase(base: string): string {
@@ -108,23 +111,43 @@ export interface HfClientOptions {
   token: () => string | null
 }
 
+// fetch 失败时给用户可读的原因：超时单独说明（镜像挂死最常见），其余沿用底层 message。
+// 按 name 判断而不依赖 instanceof Error：AbortSignal.timeout 抛的是 DOMException，原型链因运行时而异。
+function fetchErrorMessage(error: unknown): string {
+  const name = typeof error === 'object' && error !== null ? (error as { name?: unknown }).name : undefined
+  if (name === 'TimeoutError') return `请求超时（${REQUEST_TIMEOUT_MS / 1000} 秒无响应）`
+  return error instanceof Error ? error.message : String(error)
+}
+
 export class HfClient {
   constructor(private readonly options: HfClientOptions) {}
 
   private async getJson(url: string): Promise<unknown> {
     const token = this.options.token()
-    const response = await this.options.fetchFn(url, {
-      headers: token
-        ? { Authorization: `Bearer ${token}`, accept: 'application/json' }
-        : { accept: 'application/json' }
-    })
+    let response: Response
+    try {
+      response = await this.options.fetchFn(url, {
+        headers: token
+          ? { Authorization: `Bearer ${token}`, accept: 'application/json' }
+          : { accept: 'application/json' },
+        // 超时同时覆盖响应体读取；镜像挂死时抛 TimeoutError，统一映射成中文提示，不让原生英文错误漏到界面。
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
+      })
+    } catch (error) {
+      throw new Error(`HF 请求失败：${fetchErrorMessage(error)}`)
+    }
     // 401/403 对 HF 意味着「缺 Token 或未同意访问条款」，提示用户去设置 Token，而不是当成网络故障。
     if (response.status === 401 || response.status === 403) {
       throw new Error('需要 HuggingFace Token（或该模型需要授权访问）')
     }
     if (response.status === 404) throw new Error('模型不存在或已被删除')
     if (!response.ok) throw new Error(`HF 请求失败：HTTP ${response.status}`)
-    return await response.json()
+    try {
+      return await response.json()
+    } catch {
+      // 镜像常把 API 请求 302 到网页登录页，200 但不是 JSON；此时报解析失败比抛 SyntaxError 更可诊断。
+      throw new Error('HF 响应无法解析（可能被镜像登录页拦截）')
+    }
   }
 
   async search(query: string): Promise<HfModelSummary[]> {

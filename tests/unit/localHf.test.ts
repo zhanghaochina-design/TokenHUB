@@ -4,6 +4,7 @@ import {
   hfModelUrl,
   hfResolveUrl,
   hfSearchUrl,
+  isRepoId,
   parseHfModel,
   parseHfSearch
 } from '../../core/local/hf'
@@ -28,6 +29,16 @@ describe('hf urls', () => {
     expect(hfResolveUrl('https://hf-mirror.com', 'org/repo', 'sub dir/model #1.gguf')).toBe(
       'https://hf-mirror.com/org/repo/resolve/main/sub%20dir/model%20%231.gguf'
     )
+  })
+})
+
+describe('hf repo ids', () => {
+  it('accepts only org/repo and rejects path escapes', () => {
+    expect(isRepoId('org/repo')).toBe(true)
+    expect(isRepoId('../etc')).toBe(false)
+    expect(isRepoId('org')).toBe(false)
+    expect(isRepoId('a/b/c')).toBe(false)
+    expect(isRepoId(null)).toBe(false)
   })
 })
 
@@ -82,7 +93,10 @@ describe('hf parsing', () => {
   })
 
   it('treats missing or unknown fields as unlicensed and ungated', () => {
-    const detail = parseHfModel('org/repo', { siblings: [{ rfilename: 'model.gguf' }] })
+    // null / 数字 / rfilename 非字符串的 sibling 都是上游可能出现的异常形状，必须静默跳过而不是抛错。
+    const detail = parseHfModel('org/repo', {
+      siblings: [null, 5, { rfilename: 42 }, { rfilename: 'model.gguf' }]
+    })
     expect(detail).toEqual({
       id: 'org/repo',
       license: null,
@@ -95,9 +109,11 @@ describe('hf parsing', () => {
 describe('HfClient', () => {
   it('sends the token and maps auth failures', async () => {
     const urls: string[] = []
+    let headers: Record<string, string> = {}
     const client = new HfClient({
-      fetchFn: async (url) => {
+      fetchFn: async (url, init) => {
         urls.push(url)
+        headers = (init?.headers ?? {}) as Record<string, string>
         return new Response('denied', { status: 401 })
       },
       baseUrl: () => 'https://huggingface.co',
@@ -105,6 +121,54 @@ describe('HfClient', () => {
     })
     await expect(client.search('qwen')).rejects.toThrow('Token')
     expect(urls[0]).toContain('/api/models?search=qwen')
+    expect(headers.Authorization).toBe('Bearer hf_x')
+  })
+
+  it('bounds every request with an abort signal', async () => {
+    let init: RequestInit | undefined
+    const client = new HfClient({
+      fetchFn: async (_url, options) => {
+        init = options
+        return new Response(JSON.stringify([{ id: 'org/repo' }]), { status: 200 })
+      },
+      baseUrl: () => 'https://huggingface.co',
+      token: () => null
+    })
+    await client.search('qwen')
+    expect(init?.signal).toBeInstanceOf(AbortSignal)
+  })
+
+  it('maps a non-JSON 200 body to an unreadable-response error', async () => {
+    const client = new HfClient({
+      fetchFn: async () =>
+        new Response('<html>please sign in</html>', { status: 200, headers: { 'content-type': 'text/html' } }),
+      baseUrl: () => 'https://hf-mirror.com',
+      token: () => null
+    })
+    await expect(client.search('qwen')).rejects.toThrow('HF 响应无法解析')
+  })
+
+  it('maps a fetch rejection to a request-failed error', async () => {
+    const client = new HfClient({
+      fetchFn: async () => {
+        throw new Error('getaddrinfo ENOTFOUND hf-mirror.com')
+      },
+      baseUrl: () => 'https://hf-mirror.com',
+      token: () => null
+    })
+    await expect(client.model('org/repo')).rejects.toThrow('HF 请求失败：getaddrinfo ENOTFOUND hf-mirror.com')
+  })
+
+  it('maps an aborted request to a timeout message', async () => {
+    const client = new HfClient({
+      fetchFn: async () => {
+        // AbortSignal.timeout 在 fetch 内部抛出的就是 name 为 TimeoutError 的错误。
+        throw Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' })
+      },
+      baseUrl: () => 'https://hf-mirror.com',
+      token: () => null
+    })
+    await expect(client.search('qwen')).rejects.toThrow('HF 请求失败：请求超时')
   })
 
   it('maps 404 to a model-not-found error and rejects malformed repos', async () => {
