@@ -36,8 +36,10 @@ test('quota bars and speed gauge layout', async () => {
     await win.getByRole('button', { name: '保存' }).click()
     await expect(win.getByRole('list', { name: '供应商列表' }).getByText('OpenCode Go')).toBeVisible()
 
-    const config = JSON.parse(readFileSync(join(dataDir, 'config.json'), 'utf8')) as { providers: Array<{ id: string }> }
-    const providerId = config.providers[0].id
+    const config = JSON.parse(readFileSync(join(dataDir, 'config.json'), 'utf8')) as {
+      providers: Array<{ id: string; preset: string }>
+    }
+    const providerId = config.providers.find((provider) => provider.preset === 'opencode-go')!.id
     await app.close()
 
     const now = Date.now()

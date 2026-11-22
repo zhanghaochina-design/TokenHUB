@@ -75,7 +75,7 @@ test('creates a canonical model from the suggestion and hides raw ids', async ()
       'deepseek/deepseek-v4.1-flash'
     ])
 
-    await win.getByRole('link', { name: '模型' }).click()
+    await win.getByRole('link', { name: '模型', exact: true }).click()
     await expect(win.getByRole('heading', { name: '模型', exact: true })).toBeVisible()
     const modelList = win.getByRole('list', { name: '模型列表', exact: true })
     await expect(modelList.getByText('deepseek-v4.1-flash', { exact: true })).toBeVisible()

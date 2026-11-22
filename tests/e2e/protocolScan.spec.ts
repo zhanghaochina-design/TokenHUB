@@ -157,9 +157,13 @@ test('scans provider protocol compatibility and persists badges', async () => {
     await expect(win.getByText('O✓')).toBeVisible()
 
     const saved = JSON.parse(readFileSync(join(dataDir, 'config.json'), 'utf8')) as {
-      providers: Array<{ protocolSupport?: Record<string, { anthropic: boolean | null; openai: boolean | null }> }>
+      providers: Array<{
+        preset: string
+        protocolSupport?: Record<string, { anthropic: boolean | null; openai: boolean | null }>
+      }>
     }
-    expect(saved.providers[0].protocolSupport?.m).toMatchObject({ anthropic: true, openai: true })
+    const scanned = saved.providers.find((provider) => provider.preset === 'custom')
+    expect(scanned?.protocolSupport?.m).toMatchObject({ anthropic: true, openai: true })
   } finally {
     await app?.close()
     await upstream.close()

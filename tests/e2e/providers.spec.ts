@@ -40,7 +40,10 @@ test('adds a provider from preset', async () => {
     await expect(win.getByRole('list', { name: '供应商列表' }).getByText('OpenCode Go')).toBeVisible()
     await expect.poll(() => {
       const raw = readFileSync(join(dataDir, 'config.json'), 'utf8')
-      return (JSON.parse(raw) as { providers: Array<{ maxConcurrency?: number }> }).providers[0]?.maxConcurrency
+      const providers = (JSON.parse(raw) as {
+        providers: Array<{ preset: string; maxConcurrency?: number }>
+      }).providers
+      return providers.find((provider) => provider.preset === 'opencode-go')?.maxConcurrency
     }).toBe(2)
     // 渲染层永远不应回显明文 Key。
     await expect(win.getByText('sk-test')).toHaveCount(0)

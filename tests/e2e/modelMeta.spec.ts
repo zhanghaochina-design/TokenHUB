@@ -80,7 +80,7 @@ test('hides a model from the local listing and restores it', async () => {
     const win = await app.firstWindow()
     await expect.poll(() => modelIds(), { timeout: 15_000 }).toEqual(['claude-sonnet-4-5', 'plain-model'])
 
-    await win.getByRole('link', { name: '模型' }).click()
+    await win.getByRole('link', { name: '模型', exact: true }).click()
     const modelList = win.getByRole('list', { name: '模型列表', exact: true })
     await win.getByRole('button', { name: '隐藏 Provider A / claude-sonnet-4-5 条目' }).click()
 
@@ -110,7 +110,7 @@ test('edits model metadata and restores the automatic value', async () => {
     const win = await app.firstWindow()
     await expect.poll(() => modelEntry('claude-sonnet-4-5'), { timeout: 15_000 }).toMatchObject({ context_length: 200_000 })
 
-    await win.getByRole('link', { name: '模型' }).click()
+    await win.getByRole('link', { name: '模型', exact: true }).click()
     const modelList = win.getByRole('list', { name: '模型列表', exact: true })
     await expect(modelList.getByText('200K', { exact: true })).toBeVisible()
     await expect(modelList.getByText('视觉', { exact: true })).toBeVisible()

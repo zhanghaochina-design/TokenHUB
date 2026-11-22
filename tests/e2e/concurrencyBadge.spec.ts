@@ -57,7 +57,10 @@ test('shows in-flight concurrency on the quota card', async () => {
     // 模型发现完成后 /v1 才能解析 m。
     await expect.poll(() => {
       const raw = readFileSync(join(dataDir, 'config.json'), 'utf8')
-      return (JSON.parse(raw) as { providers: Array<{ models: { cached: string[] } }> }).providers[0]?.models.cached
+      const providers = (JSON.parse(raw) as {
+        providers: Array<{ preset: string; models: { cached: string[] } }>
+      }).providers
+      return providers.find((provider) => provider.preset === 'opencode-go')?.models.cached
     }).toContain('m')
 
     await win.getByRole('link', { name: '概览', exact: true }).click()

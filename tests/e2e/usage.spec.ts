@@ -37,8 +37,10 @@ test('shows periodic cumulative token usage per provider on the usage tab', asyn
     await win.getByRole('button', { name: '保存' }).click()
     await expect(win.getByRole('list', { name: '供应商列表' }).getByText('OpenCode Go')).toBeVisible()
 
-    const config = JSON.parse(readFileSync(join(dataDir, 'config.json'), 'utf8')) as { providers: Array<{ id: string }> }
-    const providerId = config.providers[0].id
+    const config = JSON.parse(readFileSync(join(dataDir, 'config.json'), 'utf8')) as {
+      providers: Array<{ id: string; preset: string }>
+    }
+    const providerId = config.providers.find((provider) => provider.preset === 'opencode-go')!.id
     const historyDir = join(dataDir, 'history')
     mkdirSync(historyDir, { recursive: true })
     const now = Date.now()
