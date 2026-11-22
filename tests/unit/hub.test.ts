@@ -734,3 +734,63 @@ describe('Hub', () => {
     await hub.shutdown()
   })
 })
+
+describe('local provider sync and guards', () => {
+  const baseUrl = 'http://127.0.0.1:8788/v1'
+
+  it('creates the managed local provider on the first sync', async () => {
+    const { hub } = await boot()
+    await hub.syncLocalProvider({ baseUrl, models: [] })
+    const state = hub.getState()
+    expect(state.providers).toHaveLength(1)
+    expect(state.providers[0]).toMatchObject({
+      id: 'local',
+      name: '本地模型',
+      preset: 'local',
+      baseUrl: 'http://127.0.0.1:8788/v1',
+      maxConcurrency: 1,
+      quotaAdapter: 'none'
+    })
+    expect(state.catalog).toEqual([])
+    await hub.shutdown()
+  })
+
+  it('rewrites the catalog from the synced model list without duplicating the provider', async () => {
+    const { hub } = await boot()
+    await hub.syncLocalProvider({ baseUrl, models: ['m'] })
+    expect(hub.getState().providers).toHaveLength(1)
+    expect(hub.getState().catalog.map((model) => model.id)).toEqual(['m'])
+    await hub.syncLocalProvider({ baseUrl, models: [] })
+    expect(hub.getState().providers).toHaveLength(1)
+    expect(hub.getState().catalog).toEqual([])
+    await hub.shutdown()
+  })
+
+  it('treats an identical repeated sync as a no-op', async () => {
+    let clock = new Date('2026-11-22T00:00:00.000Z')
+    const { hub } = await boot({ now: () => clock })
+    await hub.syncLocalProvider({ baseUrl, models: ['m'] })
+    const first = hub.getState().providers[0].models.lastSyncedAt
+    clock = new Date(clock.getTime() + 60_000)
+    await hub.syncLocalProvider({ baseUrl, models: ['m'] })
+    expect(hub.getState().providers[0].models.lastSyncedAt).toBe(first)
+    // 只有内容真的变了才推进同步时间
+    await hub.syncLocalProvider({ baseUrl, models: ['m', 'n'] })
+    expect(hub.getState().providers[0].models.lastSyncedAt).not.toBe(first)
+    await hub.shutdown()
+  })
+
+  it('rejects patching, deleting or scanning the managed local provider', async () => {
+    const { hub } = await boot()
+    await hub.syncLocalProvider({ baseUrl, models: ['m'] })
+    await expect(hub.deleteProvider('local')).rejects.toThrow('local provider cannot be deleted')
+    await expect(hub.updateProvider('local', { baseUrl: 'http://x/v1' })).rejects.toThrow('local provider is managed automatically')
+    await expect(hub.updateProvider('local', { maxConcurrency: 4 })).rejects.toThrow('local provider is managed automatically')
+    await expect(hub.scanProviderProtocols('local')).rejects.toThrow()
+    await expect(
+      hub.addProvider({ preset: 'local', name: 'x', baseUrl: 'http://127.0.0.1:1/v1', apiKey: 'k' })
+    ).rejects.toThrow('local provider is managed automatically')
+    expect(hub.getState().providers).toHaveLength(1)
+    await hub.shutdown()
+  })
+})

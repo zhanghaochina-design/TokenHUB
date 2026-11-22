@@ -101,6 +101,29 @@ function validateMaxConcurrency(value: number | undefined): number | undefined {
   return value
 }
 
+// 比较用序列化：对象键排序，避免同一份元数据因键序不同被判成变化。
+function stableJson(value: unknown): string {
+  return JSON.stringify(value, (_key, inner) =>
+    inner && typeof inner === 'object' && !Array.isArray(inner)
+      ? Object.fromEntries(Object.entries(inner as Record<string, unknown>).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+      : inner
+  )
+}
+
+/** 本地供应商同步前的内容比对：模型集合无序，元数据按键序无关比较。 */
+function localProviderUnchanged(
+  provider: ProviderConfig,
+  baseUrl: string,
+  models: string[],
+  meta: Record<string, ModelMeta> | undefined
+): boolean {
+  if (provider.preset !== 'local' || provider.quotaAdapter !== 'none' || provider.maxConcurrency !== 1) return false
+  if (provider.baseUrl !== baseUrl || provider.models.manual.length > 0) return false
+  const cached = provider.models.cached
+  if (cached.length !== models.length || !cached.every((model) => models.includes(model))) return false
+  return stableJson(provider.modelDiscovery ?? {}) === stableJson(meta ?? {})
+}
+
 function isQuotaSnapshot(value: unknown): value is QuotaSnapshot {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
   const snapshot = value as Record<string, unknown>
@@ -269,27 +292,35 @@ export class Hub {
 
   /** 本地模型的加载状态是唯一事实来源：models 为空时本地供应商立即退出路由。 */
   async syncLocalProvider(input: { baseUrl: string; models: string[]; meta?: Record<string, ModelMeta> }): Promise<void> {
+    const baseUrl = input.baseUrl.replace(/\/+$/, '')
+    const models = [...new Set(input.models)]
+    const meta = input.meta && Object.keys(input.meta).length > 0 ? structuredClone(input.meta) : undefined
     let provider = this.config.providers.find((candidate) => candidate.id === 'local')
     if (!provider) {
       provider = createProviderFromPreset('local', 'local')
       provider.name = '本地模型'
       provider.enabled = true
       this.config.providers.push(provider)
+    } else if (localProviderUnchanged(provider, baseUrl, models, meta)) {
+      // 每次加载状态变化都会同步一次：内容没变就不写盘、不重建目录、不广播，避免刷新时间被无意义推进。
+      return
     }
     provider.preset = 'local'
     provider.quotaAdapter = 'none'
     provider.maxConcurrency = 1
-    provider.baseUrl = input.baseUrl.replace(/\/+$/, '')
-    provider.models.cached = [...new Set(input.models)]
+    provider.baseUrl = baseUrl
+    provider.models.cached = models
     provider.models.manual = []
     provider.models.lastSyncedAt = this.now().toISOString()
-    provider.modelDiscovery = input.meta && Object.keys(input.meta).length > 0 ? structuredClone(input.meta) : undefined
+    provider.modelDiscovery = meta
     await this.persistConfig()
     this.rebuildCatalog()
     this.emit()
   }
 
   async addProvider(input: ProviderInput): Promise<void> {
+    // 本地供应商只能由 Hub 按本地服务状态创建；放进来会得到第二个无 Key、不可删、永不同步的本地供应商。
+    if (input.preset === 'local') throw new Error('local provider is managed automatically')
     const name = input.name.trim()
     if (!name) throw new Error('provider name is required')
     const apiKey = input.apiKey.trim()
@@ -322,10 +353,14 @@ export class Hub {
 
   async updateProvider(id: string, patch: ProviderPatch): Promise<void> {
     const provider = this.requireProvider(id)
-    // 本地供应商的地址/模型/额度都由本地服务同步维护，手改会被下一次同步覆盖。
+    // 本地供应商的地址/并发/模型/额度都由本地服务同步维护，手改会被下一次同步覆盖。
     if (
       provider.preset === 'local' &&
-      (patch.baseUrl !== undefined || patch.apiKey !== undefined || patch.quotaAdapter !== undefined || patch.manualModels !== undefined)
+      (patch.baseUrl !== undefined ||
+        patch.apiKey !== undefined ||
+        patch.quotaAdapter !== undefined ||
+        patch.manualModels !== undefined ||
+        patch.maxConcurrency !== undefined)
     ) {
       throw new Error('local provider is managed automatically')
     }

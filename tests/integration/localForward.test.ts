@@ -68,4 +68,21 @@ describe('local provider forwarding', () => {
     expect(response.status).toBe(401)
     expect(requests).toHaveLength(0)
   })
+
+  it('translates Anthropic client requests to a keyless Chat Completions upstream', async () => {
+    const { port, requests } = await boot('local')
+    const response = await fetch(`http://127.0.0.1:${port}/v1/messages`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ model: 'm', max_tokens: 10, messages: [{ role: 'user', content: 'ping' }] })
+    })
+    expect(response.status).toBe(200)
+    expect(requests).toHaveLength(1)
+    expect(requests[0].path).toBe('/v1/chat/completions')
+    expect(requests[0].headers.authorization).toBeUndefined()
+    const data = (await response.json()) as { type: string; role: string; content: Array<{ type: string; text?: string }> }
+    expect(data.type).toBe('message')
+    expect(data.role).toBe('assistant')
+    expect(data.content).toEqual([{ type: 'text', text: 'pong' }])
+  })
 })
