@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   BarChart3,
   Boxes,
+  Cpu,
   LayoutDashboard,
   Loader2,
   Network,
@@ -12,6 +13,7 @@ import {
   type LucideIcon
 } from 'lucide-react'
 import { useAppState } from './lib/useAppState'
+import { LocalModelsPage } from './pages/LocalModelsPage'
 import { ModelsPage } from './pages/ModelsPage'
 import { OverviewPage } from './pages/OverviewPage'
 import { ProvidersPage } from './pages/ProvidersPage'
@@ -23,6 +25,7 @@ const PAGES: Array<{ id: string; label: string; icon: LucideIcon }> = [
   { id: 'usage', label: '用量', icon: BarChart3 },
   { id: 'providers', label: '供应商', icon: Server },
   { id: 'models', label: '模型', icon: Boxes },
+  { id: 'local', label: '本地模型', icon: Cpu },
   { id: 'settings', label: '设置', icon: Settings }
 ]
 
@@ -176,6 +179,8 @@ export default function App() {
             <ProvidersPage state={state} />
           ) : page === 'models' ? (
             <ModelsPage state={state} onOpenProviders={() => navigate('providers')} />
+          ) : page === 'local' ? (
+            <LocalModelsPage />
           ) : (
             <SettingsPage state={state} />
           )}

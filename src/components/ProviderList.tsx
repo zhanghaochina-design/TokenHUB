@@ -67,6 +67,8 @@ function ProviderRow({ provider, runtime, now, index, onEdit, onDelete, onToggle
   })
   const status = providerStatus(provider, runtime, now)
   const modelCount = providerModelCount(provider)
+  // 本地供应商由 LocalService 托管：没有 Key，也不能在这里改或删。
+  const managed = provider.preset === 'local'
 
   return (
     <li
@@ -107,11 +109,13 @@ function ProviderRow({ provider, runtime, now, index, onEdit, onDelete, onToggle
           {provider.name}
         </p>
         <p
-          className={`mt-0.5 flex items-center gap-1 text-xs ${provider.hasKey ? 'text-emerald-700' : 'text-red-600'}`}
-          title={provider.hasKey ? 'API Key 已加密保存，界面不可查看' : '尚未配置 API Key'}
+          className={`mt-0.5 flex items-center gap-1 text-xs ${
+            managed ? 'text-muted' : provider.hasKey ? 'text-emerald-700' : 'text-red-600'
+          }`}
+          title={managed ? '本机推理进程，不需要 API Key' : provider.hasKey ? 'API Key 已加密保存，界面不可查看' : '尚未配置 API Key'}
         >
           <KeyRound className="size-3 shrink-0" aria-hidden="true" />
-          {provider.hasKey ? 'Key 已保存' : '未配置 Key'}
+          {managed ? '本机推理 · 无需 Key' : provider.hasKey ? 'Key 已保存' : '未配置 Key'}
         </p>
         {!provider.quota.injectStreamUsage && (
           <p
@@ -163,24 +167,32 @@ function ProviderRow({ provider, runtime, now, index, onEdit, onDelete, onToggle
       </button>
 
       <div className="flex items-center justify-end gap-1">
-        <button
-          type="button"
-          aria-label={`编辑 ${provider.name}`}
-          title="编辑"
-          onClick={() => onEdit(provider)}
-          className="flex size-8 items-center justify-center rounded-md text-muted transition-colors hover:bg-neutral-100 hover:text-ink"
-        >
-          <Pencil className="size-4" aria-hidden="true" />
-        </button>
-        <button
-          type="button"
-          aria-label={`删除 ${provider.name}`}
-          title="删除"
-          onClick={() => onDelete(provider)}
-          className="flex size-8 items-center justify-center rounded-md text-muted transition-colors hover:bg-red-50 hover:text-red-600"
-        >
-          <Trash2 className="size-4" aria-hidden="true" />
-        </button>
+        {managed ? (
+          <span className="text-[11px] text-muted" title="本地模型由「本地模型」页面管理">
+            托管
+          </span>
+        ) : (
+          <>
+            <button
+              type="button"
+              aria-label={`编辑 ${provider.name}`}
+              title="编辑"
+              onClick={() => onEdit(provider)}
+              className="flex size-8 items-center justify-center rounded-md text-muted transition-colors hover:bg-neutral-100 hover:text-ink"
+            >
+              <Pencil className="size-4" aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              aria-label={`删除 ${provider.name}`}
+              title="删除"
+              onClick={() => onDelete(provider)}
+              className="flex size-8 items-center justify-center rounded-md text-muted transition-colors hover:bg-red-50 hover:text-red-600"
+            >
+              <Trash2 className="size-4" aria-hidden="true" />
+            </button>
+          </>
+        )}
       </div>
     </li>
   )
