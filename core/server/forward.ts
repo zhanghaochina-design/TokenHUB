@@ -15,6 +15,7 @@ const agent = new Agent({
 export interface ForwardOptions {
   provider: ProviderConfig
   upstreamModel: string
+  // 空串表示无 Key（本地供应商）：不附加任何鉴权头。
   apiKey: string
   body: Record<string, unknown>
   signal: AbortSignal
@@ -39,7 +40,8 @@ export async function forwardOpenAI(options: ForwardOptions): Promise<ForwardOut
     fetchFn(`${provider.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${apiKey}`,
+        // 本地供应商没有 Key（空串）：不附加空鉴权头，避免上游把它当成无效凭据。
+        ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
         'Content-Type': 'application/json',
         Accept: withInject || wantsStream ? 'text/event-stream' : 'application/json',
         ...(options.extraHeaders ?? {})
@@ -106,7 +108,8 @@ export async function forwardAnthropic(options: ForwardAnthropicOptions): Promis
   const wantsStream = body.stream === true
   const payload: Record<string, unknown> = { ...body, model: upstreamModel }
   const headers: Record<string, string> = {
-    'x-api-key': apiKey,
+    // 空 Key（本地供应商）不发送 x-api-key，避免上游按无效凭据拒绝。
+    ...(apiKey ? { 'x-api-key': apiKey } : {}),
     'anthropic-version': options.anthropicVersion,
     'content-type': 'application/json',
     accept: wantsStream ? 'text/event-stream' : 'application/json',

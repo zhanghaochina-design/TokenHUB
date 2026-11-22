@@ -267,6 +267,28 @@ export class Hub {
     this.emit()
   }
 
+  /** 本地模型的加载状态是唯一事实来源：models 为空时本地供应商立即退出路由。 */
+  async syncLocalProvider(input: { baseUrl: string; models: string[]; meta?: Record<string, ModelMeta> }): Promise<void> {
+    let provider = this.config.providers.find((candidate) => candidate.id === 'local')
+    if (!provider) {
+      provider = createProviderFromPreset('local', 'local')
+      provider.name = '本地模型'
+      provider.enabled = true
+      this.config.providers.push(provider)
+    }
+    provider.preset = 'local'
+    provider.quotaAdapter = 'none'
+    provider.maxConcurrency = 1
+    provider.baseUrl = input.baseUrl.replace(/\/+$/, '')
+    provider.models.cached = [...new Set(input.models)]
+    provider.models.manual = []
+    provider.models.lastSyncedAt = this.now().toISOString()
+    provider.modelDiscovery = input.meta && Object.keys(input.meta).length > 0 ? structuredClone(input.meta) : undefined
+    await this.persistConfig()
+    this.rebuildCatalog()
+    this.emit()
+  }
+
   async addProvider(input: ProviderInput): Promise<void> {
     const name = input.name.trim()
     if (!name) throw new Error('provider name is required')
@@ -300,6 +322,13 @@ export class Hub {
 
   async updateProvider(id: string, patch: ProviderPatch): Promise<void> {
     const provider = this.requireProvider(id)
+    // 本地供应商的地址/模型/额度都由本地服务同步维护，手改会被下一次同步覆盖。
+    if (
+      provider.preset === 'local' &&
+      (patch.baseUrl !== undefined || patch.apiKey !== undefined || patch.quotaAdapter !== undefined || patch.manualModels !== undefined)
+    ) {
+      throw new Error('local provider is managed automatically')
+    }
     // 先完成全部校验再改字段：baseUrl 非法时不能留下半截改名。
     const nextName = patch.name === undefined ? undefined : patch.name.trim()
     if (nextName !== undefined && !nextName) throw new Error('provider name is required')
@@ -334,7 +363,9 @@ export class Hub {
   }
 
   async deleteProvider(id: string): Promise<void> {
-    this.requireProvider(id)
+    const provider = this.requireProvider(id)
+    // 本地供应商由 Hub 随加载状态自动增删，删掉会与本地服务状态脱节。
+    if (provider.preset === 'local') throw new Error('local provider cannot be deleted')
     this.config.providers = this.config.providers.filter((provider) => provider.id !== id)
     this.config.modelAliases = this.config.modelAliases.map((alias) => ({
       ...alias,
@@ -497,6 +528,8 @@ export class Hub {
 
   async scanProviderProtocols(id: string): Promise<ProtocolScanResult> {
     const provider = this.requireProvider(id)
+    // 本地供应商只有 OpenAI 形状且没有 Key，协议扫描没有意义。
+    if (provider.preset === 'local') throw new Error('local provider has no protocol scan')
     if (this.scanState) throw new Error('a protocol scan is already running')
     const apiKey = this.secrets.getProviderKey(id)
     if (!apiKey) throw new Error('api key is required')
@@ -790,6 +823,8 @@ export class Hub {
     try {
       const cutoff = this.now().getTime() - MODEL_STALE_MS
       const stale = this.config.providers.filter((provider) => {
+        // 本地供应商的模型列表由本地服务同步，不能走上游发现（也没有 Key 可发）。
+        if (provider.preset === 'local') return false
         const syncedAt = provider.models.lastSyncedAt
         const at = syncedAt ? Date.parse(syncedAt) : Number.NaN
         return !Number.isFinite(at) || at < cutoff

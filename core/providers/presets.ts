@@ -15,11 +15,13 @@ export const PROVIDER_PRESETS: PresetDefinition[] = [
 ]
 
 // OpenCode Go 与 CommandCode Goat 对突发请求会直接返回 429；默认限 3 路，给上游留出排队空间。
+// 本地 llama-server 单进程顺序解码，并发只会互相排队，默认限 1 路。
 const PRESET_MAX_CONCURRENCY: Record<Preset, number> = {
   'opencode-go': 3,
   commandcode: 3,
   deepseek: 0,
-  custom: 0
+  custom: 0,
+  local: 1
 }
 
 export function defaultMaxConcurrency(preset: Preset): number {
@@ -38,8 +40,10 @@ export function providerConcurrencyLimit(provider: Pick<ProviderConfig, 'preset'
 type SupportState = Pick<ModelProtocolSupport, 'anthropic' | 'openai'>
 
 // 没有扫描数据时的预设默认：CommandCode 按模型只提供一个形状；OpenCode Go 与 DeepSeek 两端都可用；
-// 其它预设只对 Chat 做保证，Anthropic 入口需先扫描确认。
+// 本地 llama-server 只有 OpenAI 形状；其它预设只对 Chat 做保证，Anthropic 入口需先扫描确认。
 function defaultProtocolSupport(preset: Preset, model: string): SupportState {
+  // llama-server 只提供 OpenAI 形状；Anthropic 客户端由网关转译。
+  if (preset === 'local') return { anthropic: false, openai: true }
   if (preset === 'commandcode') {
     return /^claude/i.test(model) ? { anthropic: true, openai: false } : { anthropic: false, openai: true }
   }

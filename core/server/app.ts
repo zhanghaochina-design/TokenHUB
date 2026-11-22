@@ -175,8 +175,10 @@ export function createApp(deps: AppDeps): Hono {
     waitForSlot: boolean
   ): Promise<AttemptResult<ForwardedResponse>> => {
     if (c.req.raw.signal.aborted) return { ok: false, failure: clientAborted() }
-    const apiKey = deps.getProviderKey(candidate.provider.id)
-    if (!apiKey) return { ok: false, failure: { kind: 'auth' as const, status: 401, message: 'missing api key', retryAfterMs: null } }
+    const providerKey = deps.getProviderKey(candidate.provider.id)
+    // 本地供应商由本机子进程提供，不需要 Key；云端供应商缺 Key 仍按鉴权失败处理。
+    const apiKey = providerKey ?? (candidate.provider.preset === 'local' ? '' : null)
+    if (apiKey === null) return { ok: false, failure: { kind: 'auth' as const, status: 401, message: 'missing api key', retryAfterMs: null } }
     const extraHeaders = upstreamExtraHeaders(candidate.provider, sessionId)
     const support = candidate.provider.protocolSupport?.[candidate.upstreamModel]
     const discovered = candidate.provider.endpointDiscovery?.[candidate.upstreamModel]
