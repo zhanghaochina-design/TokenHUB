@@ -111,11 +111,16 @@ export interface HfClientOptions {
   token: () => string | null
 }
 
-// fetch 失败时给用户可读的原因：超时单独说明（镜像挂死最常见），其余沿用底层 message。
-// 按 name 判断而不依赖 instanceof Error：AbortSignal.timeout 抛的是 DOMException，原型链因运行时而异。
-function fetchErrorMessage(error: unknown): string {
+// AbortSignal.timeout 的中断在 fetch 与 response.json()（读 body）两处都会抛；按 name 判断而不依赖
+// instanceof Error：它抛的是 DOMException，且原型链因运行时而异。
+function isTimeout(error: unknown): boolean {
   const name = typeof error === 'object' && error !== null ? (error as { name?: unknown }).name : undefined
-  if (name === 'TimeoutError') return `请求超时（${REQUEST_TIMEOUT_MS / 1000} 秒无响应）`
+  return name === 'TimeoutError'
+}
+
+// fetch 失败时给用户可读的原因：超时单独说明（镜像挂死最常见），其余沿用底层 message。
+function fetchErrorMessage(error: unknown): string {
+  if (isTimeout(error)) return `请求超时（${REQUEST_TIMEOUT_MS / 1000} 秒无响应）`
   return error instanceof Error ? error.message : String(error)
 }
 
@@ -144,7 +149,9 @@ export class HfClient {
     if (!response.ok) throw new Error(`HF 请求失败：HTTP ${response.status}`)
     try {
       return await response.json()
-    } catch {
+    } catch (error) {
+      // 读 body 也可能被同一个超时信号打断（镜像先回响应头再挂死 body）：这是网络超时，不是格式问题。
+      if (isTimeout(error)) throw new Error(`HF 请求失败：${fetchErrorMessage(error)}`)
       // 镜像常把 API 请求 302 到网页登录页，200 但不是 JSON；此时报解析失败比抛 SyntaxError 更可诊断。
       throw new Error('HF 响应无法解析（可能被镜像登录页拦截）')
     }

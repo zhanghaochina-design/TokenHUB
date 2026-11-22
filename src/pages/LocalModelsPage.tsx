@@ -1,8 +1,11 @@
 import { useEffect, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import { Toast } from '../components/Toast'
+import { DownloadQueue } from '../components/local/DownloadQueue'
 import { HardwareCard } from '../components/local/HardwareCard'
+import { HfSearchPanel } from '../components/local/HfSearchPanel'
 import { InstalledModelsCard } from '../components/local/InstalledModelsCard'
+import { LocalSettingsCard } from '../components/local/LocalSettingsCard'
 import { RuntimeCard } from '../components/local/RuntimeCard'
 import { useLocalState } from '../lib/useLocalState'
 
@@ -38,6 +41,14 @@ export function LocalModelsPage() {
         <RuntimeCard snapshot={snapshot} onError={setToast} />
       </div>
       <InstalledModelsCard snapshot={snapshot} onError={setToast} />
+      <LocalSettingsCard snapshot={snapshot} onError={setToast} />
+      {/* 入队后队列由主进程推送刷新；下载完成时后端自己重扫模型目录，这里不主动 refreshModels。 */}
+      <HfSearchPanel
+        hfTokenSet={snapshot.hfTokenSet}
+        onDownloaded={(repo) => setToast(`已加入下载队列：${repo}`)}
+        onError={setToast}
+      />
+      <DownloadQueue tasks={snapshot.downloads} onError={setToast} />
       {toast ? <Toast message={toast} onDismiss={() => setToast(null)} /> : null}
     </div>
   )

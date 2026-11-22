@@ -148,6 +148,23 @@ describe('HfClient', () => {
     await expect(client.search('qwen')).rejects.toThrow('HF 响应无法解析')
   })
 
+  it('maps a timeout while reading the body to a request-timeout error', async () => {
+    // 镜像先回 200 响应头、body 挂死：AbortSignal.timeout 会在 json() 里抛 TimeoutError，须报超时而非解析失败。
+    const client = new HfClient({
+      fetchFn: async () =>
+        ({
+          status: 200,
+          ok: true,
+          json: async () => {
+            throw Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' })
+          }
+        }) as unknown as Response,
+      baseUrl: () => 'https://hf-mirror.com',
+      token: () => null
+    })
+    await expect(client.search('qwen')).rejects.toThrow('HF 请求失败：请求超时（15 秒无响应）')
+  })
+
   it('maps a fetch rejection to a request-failed error', async () => {
     const client = new HfClient({
       fetchFn: async () => {
