@@ -88,6 +88,40 @@ describe('secret store', () => {
     expect(await quarantineFiles(file)).toHaveLength(1)
   })
 
+  it('stores and clears the HuggingFace token without touching provider keys', async () => {
+    const file = await tempFile()
+    const store = await SecretStore.open(file, xorCipher)
+    expect(store.getHfToken()).toBeNull()
+    await store.setHfToken(' hf_abc ')
+    expect(store.getHfToken()).toBe('hf_abc')
+    const reopened = await SecretStore.open(file, xorCipher)
+    expect(reopened.getHfToken()).toBe('hf_abc')
+    expect(reopened.getProviderKey('p')).toBeNull()
+    await reopened.setHfToken(null)
+    expect(reopened.hasHfToken()).toBe(false)
+  })
+
+  it('keeps working with a secrets file written before the HF token existed', async () => {
+    const file = await tempFile()
+    const legacy = { version: 1, providerKeys: { p1: 'k' }, localApiKey: 'local' }
+    await writeFile(file, `TOKENHUB-SECRETS-1\n${xorCipher.encrypt(JSON.stringify(legacy)).toString('base64')}`, 'utf8')
+    const store = await SecretStore.open(file, xorCipher)
+    expect(store.getRecoveryWarning()).toBeNull()
+    expect(store.getHfToken()).toBeNull()
+    expect(store.hasHfToken()).toBe(false)
+    expect(store.getProviderKey('p1')).toBe('k')
+  })
+
+  it('quarantines a secrets file whose HF token is not a string', async () => {
+    const file = await tempFile()
+    const bad = { version: 1, providerKeys: {}, localApiKey: null, hfToken: 42 }
+    await writeFile(file, `TOKENHUB-SECRETS-1\n${xorCipher.encrypt(JSON.stringify(bad)).toString('base64')}`, 'utf8')
+    const store = await SecretStore.open(file, xorCipher)
+    expect(store.getHfToken()).toBeNull()
+    expect(store.getRecoveryWarning()).not.toBeNull()
+    expect(await quarantineFiles(file)).toHaveLength(1)
+  })
+
   it('throws without touching the file when encryption is unavailable but a file exists', async () => {
     const file = await tempFile()
     const writer = await SecretStore.open(file, xorCipher)

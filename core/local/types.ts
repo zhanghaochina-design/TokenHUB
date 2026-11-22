@@ -18,7 +18,7 @@ export interface GpuInfo {
   name: string
   vendor: 'nvidia' | 'amd' | 'intel' | 'other'
   vramBytes: number | null
-  // true 表示来自 WMI AdapterRAM（uint32 截断），界面需提示估算。
+  // true 表示显存是近似值：注册表按名称模糊匹配，或退化为 WMI AdapterRAM（uint32 截断），界面需提示估算。
   vramEstimated: boolean
   recommended: boolean
 }
@@ -41,6 +41,7 @@ export interface RuntimeInstall {
 
 export interface InstalledModel {
   id: string
+  // 相对 modelsDir。分片模型这里是**第一个**分片，其它分片用 library.shardPaths 枚举。
   path: string
   sizeBytes: number
   parts: number
@@ -91,6 +92,8 @@ export interface LocalSnapshot {
   runtime: LocalRuntimeStatus
   models: InstalledModel[]
   downloads: DownloadTask[]
+  // 运行时安装进度：只有安装/导入进行中才有值，结束（成功或失败）后清回 null。
+  installProgress?: { asset: string; index: number; count: number; received: number; total: number | null } | null
   hfTokenSet: boolean
 }
 

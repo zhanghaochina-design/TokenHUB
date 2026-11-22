@@ -104,6 +104,7 @@ function buildModel(
   return {
     id: modelIdFromName(base),
     // path 相对 modelsDir，调用方用 join(modelsDir, path) 定位文件。
+    // 分片模型这里是第一个分片（llama.cpp 会自行加载其余分片），全部路径见 shardPaths。
     path: parts[0].relative,
     sizeBytes: parts.reduce((sum, part) => sum + part.size, 0),
     parts: partCount,
@@ -111,6 +112,24 @@ function buildModel(
     quant: quantFromFileName(base) ?? undefined,
     loaded: false
   }
+}
+
+/**
+ * 模型占用的全部文件（相对 modelsDir）。删除模型必须按这个列表逐个删，
+ * 否则分片模型只会删掉第一个分片，留下永远拼不起来的残片。
+ * 文件名不含分片标记（无法推导同批其它分片）时退回单文件，绝不凭空构造路径。
+ */
+export function shardPaths(model: InstalledModel): string[] {
+  if (model.parts <= 1) return [model.path]
+  const split = splitInfo(posix.basename(model.path))
+  if (!split) return [model.path]
+  const dir = posix.dirname(model.path)
+  const paths: string[] = []
+  for (let part = 1; part <= split.total; part += 1) {
+    const fileName = `${split.base}-${String(part).padStart(5, '0')}-of-${String(split.total).padStart(5, '0')}.gguf`
+    paths.push(dir === '.' ? fileName : `${dir}/${fileName}`)
+  }
+  return paths
 }
 
 function repoDirOf(path: string): string {

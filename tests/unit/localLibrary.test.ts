@@ -2,7 +2,15 @@ import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { groupGgufFiles, isSafeRelativePath, modelIdFromName, quantFromFileName, scanModels, splitInfo } from '../../core/local/library'
+import {
+  groupGgufFiles,
+  isSafeRelativePath,
+  modelIdFromName,
+  quantFromFileName,
+  scanModels,
+  shardPaths,
+  splitInfo
+} from '../../core/local/library'
 
 describe('gguf library', () => {
   it('parses split names and quant labels', () => {
@@ -77,6 +85,30 @@ describe('gguf library', () => {
     expect(new Set(ids).size).toBe(ids.length)
     expect(ids).toContain('Same-Q8_0')
     expect(ids).toContain('Same-Q8_0@org-repo')
+  })
+
+  it('enumerates every shard path of a split model', () => {
+    const models = groupGgufFiles([
+      { relative: 'org/repo/Big-Q4_K_M-00001-of-00002.gguf', size: 10 },
+      { relative: 'org/repo/Big-Q4_K_M-00002-of-00002.gguf', size: 20 }
+    ])
+    expect(shardPaths(models[0])).toEqual([
+      'org/repo/Big-Q4_K_M-00001-of-00002.gguf',
+      'org/repo/Big-Q4_K_M-00002-of-00002.gguf'
+    ])
+  })
+
+  it('returns the single file for a one-part model and for names without a split marker', () => {
+    const single = groupGgufFiles([{ relative: 'Plain/F16.gguf', size: 10 }])
+    expect(shardPaths(single[0])).toEqual(['Plain/F16.gguf'])
+    // 文件名里没有分片标记时无法推导其它分片，只能退回单文件，绝不凭空构造路径。
+    const odd = { id: 'odd', path: 'root/Odd.gguf', sizeBytes: 1, parts: 2, loaded: false }
+    expect(shardPaths(odd)).toEqual(['root/Odd.gguf'])
+    const rootSplit = groupGgufFiles([
+      { relative: 'Root-00001-of-00002.gguf', size: 1 },
+      { relative: 'Root-00002-of-00002.gguf', size: 1 }
+    ])
+    expect(shardPaths(rootSplit[0])).toEqual(['Root-00001-of-00002.gguf', 'Root-00002-of-00002.gguf'])
   })
 
   it('derives ids from unsafe file names', () => {

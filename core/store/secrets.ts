@@ -20,6 +20,8 @@ interface Secrets {
   version: 1
   providerKeys: Record<string, string>
   localApiKey: string | null
+  // 可选：旧文件没有该字段，按 null 处理。
+  hfToken?: string | null
 }
 
 function emptySecrets(): Secrets {
@@ -33,7 +35,9 @@ function isSecrets(value: unknown): value is Secrets {
   const keys = candidate.providerKeys
   if (typeof keys !== 'object' || keys === null || Array.isArray(keys)) return false
   if (!Object.values(keys).every((key) => typeof key === 'string')) return false
-  return candidate.localApiKey === null || typeof candidate.localApiKey === 'string'
+  if (candidate.localApiKey !== null && typeof candidate.localApiKey !== 'string') return false
+  if (candidate.hfToken !== undefined && candidate.hfToken !== null && typeof candidate.hfToken !== 'string') return false
+  return true
 }
 
 // 任何格式/解密/结构问题都视为损坏，由调用方隔离原文件而不是静默清空。
@@ -80,6 +84,21 @@ export class SecretStore {
 
   getLocalApiKey(): string | null {
     return this.data.localApiKey
+  }
+
+  // HuggingFace Token 只用于下载 Gated 模型，与供应商 Key 分开存放，缺失时按未设置处理。
+  getHfToken(): string | null {
+    return this.data.hfToken ?? null
+  }
+
+  hasHfToken(): boolean {
+    return Boolean(this.data.hfToken)
+  }
+
+  async setHfToken(token: string | null): Promise<void> {
+    const normalized = token && token.trim() ? token.trim() : null
+    this.data.hfToken = normalized
+    await this.persist()
   }
 
   async setProviderKey(id: string, key: string): Promise<void> {
