@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_LOCAL_SETTINGS } from '../../core/local/settings'
 import { LocalService, defaultInstallerPorts, type RuntimeProbe } from '../../core/local/service'
-import type { LocalRuntimeStatus, LocalSnapshot, RuntimeInstall } from '../../core/local/types'
+import type { LocalBackend, LocalRuntimeStatus, LocalSnapshot, RuntimeInstall } from '../../core/local/types'
 
 const install: RuntimeInstall = {
   backend: 'vulkan',
@@ -60,6 +60,8 @@ async function createHarness(options: HarnessOptions = {}) {
   }
 
   const synced: SyncRecord[] = []
+  // 记录安装器收到的后端值：安全修复要求非法值根本到不了 installer.install / remove。
+  const calls = { install: [] as LocalBackend[], remove: [] as LocalBackend[] }
   const state = {
     loaded: false,
     modelId: null as string | null,
@@ -88,12 +90,15 @@ async function createHarness(options: HarnessOptions = {}) {
     logger: { info: async () => {}, warn: async () => {}, error: async () => {} },
     detect: async () => ({ gpus: [], recommendedBackend: 'vulkan', detectedAt: '2026-01-01T00:00:00.000Z' }),
     installer: {
-      install: async () => {
+      install: async (backend) => {
+        calls.install.push(backend)
         if (options.installFails) throw new Error('llama-server --version 失败（退出码 3221225781）')
         return install
       },
       importZip: async () => install,
-      remove: async () => {},
+      remove: async (backend) => {
+        calls.remove.push(backend)
+      },
       getExe: async () => install,
       listInstalled: async () => options.installs ?? [install]
     },
@@ -132,7 +137,7 @@ async function createHarness(options: HarnessOptions = {}) {
     now: () => new Date('2026-01-01T00:00:00.000Z')
   })
 
-  return { service, synced, state, modelsDir, dataDir, triggerExit: () => onExit?.() }
+  return { service, synced, calls, state, modelsDir, dataDir, triggerExit: () => onExit?.() }
 }
 
 describe('LocalService', () => {
@@ -276,6 +281,38 @@ describe('LocalService', () => {
 
     expect(service.getSnapshot().install).toEqual(before)
     expect(service.getSnapshot().installProgress ?? null).toBeNull()
+  })
+
+  it('refuses a removeRuntime backend that could escape the runtime dir', async () => {
+    const { service, calls, synced } = await createHarness({ files: ['Qwen3-8B-Q4_K_M.gguf'] })
+    const syncCount = synced.length
+
+    // 渲染进程能传任意字符串：'../..' 会拼进 runtimeRoot，必须先被白名单拦下。
+    await expect(service.removeRuntime('../..' as unknown as LocalBackend)).rejects.toThrow('invalid local backend')
+
+    expect(calls.remove).toEqual([])
+    expect(synced.length).toBe(syncCount)
+    expect(service.getSnapshot().install).toMatchObject({ backend: 'vulkan' })
+  })
+
+  it('refuses an installRuntime backend that is not in the whitelist', async () => {
+    const { service, calls } = await createHarness({ files: [], installs: [] })
+
+    await expect(service.installRuntime('../..' as unknown as LocalBackend)).rejects.toThrow('invalid local backend: ../..')
+
+    expect(calls.install).toEqual([])
+    expect(service.getSnapshot().install).toBeNull()
+  })
+
+  it('removes a valid backend and clears the provider models', async () => {
+    const { service, calls, synced } = await createHarness({ files: ['Qwen3-8B-Q4_K_M.gguf'] })
+
+    await service.removeRuntime('vulkan')
+
+    expect(calls.remove).toEqual(['vulkan'])
+    expect(service.getSnapshot().install).toBeNull()
+    // 运行时没了就不能再路由到它的模型：供应商必须退回空列表。
+    expect(synced.at(-1)).toEqual({ baseUrl: 'http://127.0.0.1:8788/v1', models: [] })
   })
 
   it('lets callers subscribe after open() resolves', async () => {

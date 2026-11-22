@@ -76,6 +76,9 @@ function emptyHardware(): HardwareReport {
 // 快照广播的节流窗口：llama-server 的日志是逐行刷新的，不合并会把 IPC 打满。
 const EMIT_THROTTLE_MS = 300
 
+// 允许的后端值与 `LocalBackend` 一致；IPC 传来的是任意字符串，必须先对照白名单再拼路径。
+const LOCAL_BACKENDS: readonly string[] = ['cuda', 'vulkan', 'rocm', 'cpu']
+
 export class LocalService {
   private settings: LocalSettings = DEFAULT_LOCAL_SETTINGS
   private hardware: HardwareReport = emptyHardware()
@@ -220,9 +223,18 @@ export class LocalService {
     return this.detect()
   }
 
+  // 后端值来自渲染进程，会直接拼进运行时目录（见 RuntimeInstaller.remove 的 rm）：'../..' 之类
+  // 必须在这里拒掉，否则递归删除会跑出 runtimeRoot。
+  private assertBackend(value: unknown): LocalBackend {
+    if (typeof value === 'string' && LOCAL_BACKENDS.includes(value)) return value as LocalBackend
+    throw new Error(`invalid local backend: ${String(value)}`)
+  }
+
   async installRuntime(backend?: LocalBackend): Promise<LocalSnapshot> {
+    // 不传后端时沿用设置；显式传值（哪怕是空串）一律按白名单校验。
+    const requested = backend === undefined ? undefined : this.assertBackend(backend)
     const target =
-      backend ?? (this.settings.backend === 'auto' ? this.hardware.recommendedBackend : this.settings.backend)
+      requested ?? (this.settings.backend === 'auto' ? this.hardware.recommendedBackend : this.settings.backend)
     try {
       const install = await this.installer.install(target)
       this.installs = (await this.installer.listInstalled()).filter((item) => item.backend !== target).concat(install)
@@ -250,9 +262,11 @@ export class LocalService {
   }
 
   async removeRuntime(backend: LocalBackend): Promise<LocalSnapshot> {
+    // 先校验再做任何文件/进程操作：非法值不能进到 installer.remove。
+    const target = this.assertBackend(backend)
     await this.runtime.stop()
-    await this.installer.remove(backend)
-    this.installs = this.installs.filter((install) => install.backend !== backend)
+    await this.installer.remove(target)
+    this.installs = this.installs.filter((install) => install.backend !== target)
     this.models = this.models.map((model) => ({ ...model, loaded: false }))
     await this.options.hub.syncLocalProvider({ baseUrl: this.baseUrl, models: [] })
     this.emitNow()
