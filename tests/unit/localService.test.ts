@@ -2,9 +2,22 @@ import { mkdir, mkdtemp, readdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import type { FetchFn } from '../../core/local/http'
 import { DEFAULT_LOCAL_SETTINGS } from '../../core/local/settings'
-import { LocalService, defaultInstallerPorts, type RuntimeProbe } from '../../core/local/service'
-import type { LocalBackend, LocalRuntimeStatus, LocalSnapshot, RuntimeInstall } from '../../core/local/types'
+import {
+  LocalService,
+  defaultInstallerPorts,
+  type DownloadManagerPort,
+  type HfPort,
+  type RuntimeProbe
+} from '../../core/local/service'
+import type {
+  DownloadTask,
+  LocalBackend,
+  LocalRuntimeStatus,
+  LocalSnapshot,
+  RuntimeInstall
+} from '../../core/local/types'
 
 const install: RuntimeInstall = {
   backend: 'vulkan',
@@ -46,6 +59,12 @@ interface HarnessOptions {
   loadFails?: boolean
   /** 模拟安装被运行时自检拒绝（如 CUDA 包缺 cudart）。 */
   installFails?: boolean
+  /** 首个安装调用挂在这里，用于验证并发安装守卫；resolve 后安装照常完成并返回 install。 */
+  installGate?: Promise<void>
+  /** 注入下载用的 fetch：真实 DownloadManager 会用它把文件写进 modelsDir。 */
+  fetchFn?: FetchFn
+  hf?: HfPort
+  downloads?: DownloadManagerPort
   onSnapshot?: (snapshot: LocalSnapshot) => void
 }
 
@@ -61,7 +80,7 @@ async function createHarness(options: HarnessOptions = {}) {
 
   const synced: SyncRecord[] = []
   // 记录安装器收到的后端值：安全修复要求非法值根本到不了 installer.install / remove。
-  const calls = { install: [] as LocalBackend[], remove: [] as LocalBackend[] }
+  const calls = { install: [] as LocalBackend[], remove: [] as LocalBackend[], importZip: 0 }
   const state = {
     loaded: false,
     modelId: null as string | null,
@@ -88,14 +107,22 @@ async function createHarness(options: HarnessOptions = {}) {
       }
     },
     logger: { info: async () => {}, warn: async () => {}, error: async () => {} },
+    fetchFn: options.fetchFn,
+    hf: options.hf,
+    downloads: options.downloads,
     detect: async () => ({ gpus: [], recommendedBackend: 'vulkan', detectedAt: '2026-01-01T00:00:00.000Z' }),
     installer: {
       install: async (backend) => {
         calls.install.push(backend)
+        if (options.installGate) await options.installGate
         if (options.installFails) throw new Error('llama-server --version 失败（退出码 3221225781）')
         return install
       },
-      importZip: async () => install,
+      importZip: async () => {
+        calls.importZip += 1
+        if (options.installGate) await options.installGate
+        return install
+      },
       remove: async (backend) => {
         calls.remove.push(backend)
       },
@@ -138,6 +165,28 @@ async function createHarness(options: HarnessOptions = {}) {
   })
 
   return { service, synced, calls, state, modelsDir, dataDir, triggerExit: () => onExit?.() }
+}
+
+// 下载完成后的重扫是异步的（onDone 不阻塞下载队列）：轮询等它落地，不用固定 sleep 赌时序。
+async function waitUntil(check: () => boolean): Promise<void> {
+  for (let attempt = 0; attempt < 400; attempt += 1) {
+    if (check()) return
+    await new Promise((resolve) => setTimeout(resolve, 5))
+  }
+  throw new Error('等待条件超时')
+}
+
+function task(id: string): DownloadTask {
+  return {
+    id,
+    repo: 'Org/Repo',
+    files: [{ path: 'a.gguf', totalBytes: 4, receivedBytes: 4 }],
+    phase: 'done',
+    error: null,
+    speedBps: null,
+    createdAt: 'x',
+    updatedAt: 'x'
+  }
 }
 
 describe('LocalService', () => {
@@ -397,6 +446,113 @@ describe('LocalService', () => {
     })
 
     expect(service.getSnapshot().settings).toEqual(DEFAULT_LOCAL_SETTINGS)
+    await service.shutdown()
+  })
+
+  it('rejects a second runtime install while one is still running', async () => {
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const { service, calls } = await createHarness({ files: [], installs: [], installGate: gate })
+
+    const first = service.installRuntime('vulkan')
+    // 两条并发的安装会解压到同一目录、互相覆盖进度：第二、三次必须立刻被拒。
+    await expect(service.installRuntime('vulkan')).rejects.toThrow('运行时安装已在进行中')
+    await expect(service.importRuntimeZip('C:/llama.zip')).rejects.toThrow('运行时安装已在进行中')
+    expect(calls.install).toEqual(['vulkan'])
+    expect(calls.importZip).toBe(0)
+
+    release()
+    await expect(first).resolves.toMatchObject({ install: { backend: 'vulkan', tag: 'b1' } })
+
+    // 守卫必须在 finally 里清掉：安装结束后导入要能继续进行。
+    await service.installRuntime('vulkan')
+    await service.importRuntimeZip('C:/llama.zip')
+    expect(calls.install).toEqual(['vulkan', 'vulkan'])
+    expect(calls.importZip).toBe(1)
+    await service.shutdown()
+  })
+
+  it('proxies HF and download calls and rejects malformed repos', async () => {
+    const seen: string[] = []
+    const summary = [{ id: 'Org/Repo', downloads: 3, likes: 1, lastModified: '', license: null, gated: false }]
+    const detail = { id: 'Org/Repo', license: null, gated: false, files: [] }
+    const { service } = await createHarness({
+      files: [],
+      hf: {
+        search: async (query) => {
+          seen.push(`search:${query}`)
+          return summary
+        },
+        model: async (repo) => {
+          seen.push(`model:${repo}`)
+          return detail
+        }
+      },
+      downloads: {
+        getTasks: () => [task('t1')],
+        enqueue: async (repo, files) => {
+          seen.push(`enqueue:${repo}:${files.join('|')}`)
+        },
+        pause: async (id) => {
+          seen.push(`pause:${id}`)
+        },
+        resume: async (id) => {
+          seen.push(`resume:${id}`)
+        },
+        cancel: async (id) => {
+          seen.push(`cancel:${id}`)
+        },
+        shutdown: async () => {
+          seen.push('shutdown')
+        }
+      }
+    })
+
+    // 搜索词是自由文本，原样透传；详情与下载必须形如 org/repo。
+    expect(await service.searchHf('qwen 3')).toEqual(summary)
+    expect(await service.getHfModel('Org/Repo')).toEqual(detail)
+    await expect(service.getHfModel('Org')).rejects.toThrow('org/repo')
+    await expect(service.download('../etc', ['a.gguf'])).rejects.toThrow('org/repo')
+
+    const snapshot = await service.download('Org/Repo', ['a.gguf', 'b.gguf'])
+    expect(snapshot.downloads.map((entry) => entry.id)).toEqual(['t1'])
+    await service.pauseDownload('t1')
+    await service.resumeDownload('t1')
+    await service.cancelDownload('t1')
+    await service.shutdown()
+
+    expect(seen).toEqual([
+      'search:qwen 3',
+      'model:Org/Repo',
+      'enqueue:Org/Repo:a.gguf|b.gguf',
+      'pause:t1',
+      'resume:t1',
+      'cancel:t1',
+      'shutdown'
+    ])
+  })
+
+  it('rescans models and broadcasts a snapshot when a download finishes', async () => {
+    const { service, modelsDir } = await createHarness({
+      files: [],
+      fetchFn: async () => new Response('gguf', { status: 200, headers: { 'content-length': '4' } })
+    })
+    const snapshots: LocalSnapshot[] = []
+    service.setOnSnapshot((snapshot) => snapshots.push(snapshot))
+
+    await service.download('Org/Repo', ['Model-Q4_K_M.gguf'])
+    // 空闲时入队会立刻开跑：返回的快照里已经能看到这条任务（queued 或 downloading）。
+    expect(service.getSnapshot().downloads).toHaveLength(1)
+    expect(['queued', 'downloading']).toContain(service.getSnapshot().downloads[0].phase)
+
+    await waitUntil(() => service.getSnapshot().downloads[0]?.phase === 'done')
+    // onDone 负责重扫：新文件不必等用户手动刷新就能出现在模型列表里。
+    await waitUntil(() => service.getSnapshot().models.length === 1)
+    expect(service.getSnapshot().models[0]).toMatchObject({ id: 'Model-Q4_K_M', repo: 'Org/Repo' })
+    expect(await readdir(join(modelsDir, 'Org', 'Repo'))).toEqual(['Model-Q4_K_M.gguf'])
+    expect(snapshots.some((snapshot) => snapshot.models.length === 1)).toBe(true)
     await service.shutdown()
   })
 })

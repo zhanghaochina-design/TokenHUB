@@ -79,6 +79,13 @@ export function registerIpc(
   ipcMain.handle('tokenhub:local:refreshModels', () => local.refreshModels())
   ipcMain.handle('tokenhub:local:updateSettings', (_e, patch: Partial<LocalSettings>) => local.updateSettings(patch))
   ipcMain.handle('tokenhub:local:setHfToken', (_e, token: string | null) => local.setHfToken(token))
+  // HF 搜索/详情与下载队列：仓库校验与下载落盘都在主进程侧完成。
+  ipcMain.handle('tokenhub:local:searchHf', (_e, query: string) => local.searchHf(query))
+  ipcMain.handle('tokenhub:local:getHfModel', (_e, repo: string) => local.getHfModel(repo))
+  ipcMain.handle('tokenhub:local:download', (_e, repo: string, files: string[]) => local.download(repo, files))
+  ipcMain.handle('tokenhub:local:pauseDownload', (_e, id: string) => local.pauseDownload(id))
+  ipcMain.handle('tokenhub:local:resumeDownload', (_e, id: string) => local.resumeDownload(id))
+  ipcMain.handle('tokenhub:local:cancelDownload', (_e, id: string) => local.cancelDownload(id))
   ipcMain.handle('tokenhub:local:revealModelsDir', async () => {
     await shell.openPath(local.getModelsDir())
   })

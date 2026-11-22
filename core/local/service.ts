@@ -2,15 +2,20 @@ import { execFile, spawn } from 'node:child_process'
 import { mkdir, readFile, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { writeFileAtomic } from '../store/fsUtil'
+import { DownloadManager } from './downloader'
 import { detectHardware, runCommand } from './hardware'
+import { HfClient, isRepoId } from './hf'
 import { downloadFile, type FetchFn } from './http'
 import { scanModels, shardPaths } from './library'
 import { LocalRuntime, type ChildHandle, type RuntimeSpawnPorts } from './runtime'
 import { RuntimeInstaller, type InstallerPorts } from './runtimeInstaller'
-import { DEFAULT_LOCAL_SETTINGS, normalizeLocalSettings } from './settings'
+import { DEFAULT_LOCAL_SETTINGS, hfBaseUrl, normalizeLocalSettings } from './settings'
 import type {
   BackendPreference,
+  DownloadTask,
   HardwareReport,
+  HfModelDetail,
+  HfModelSummary,
   LocalBackend,
   LocalRuntimeStatus,
   LocalSettings,
@@ -54,6 +59,20 @@ export interface RuntimeInstallerPort {
   listInstalled(): Promise<RuntimeInstall[]>
 }
 
+export interface HfPort {
+  search(query: string): Promise<HfModelSummary[]>
+  model(repo: string): Promise<HfModelDetail>
+}
+
+export interface DownloadManagerPort {
+  getTasks(): DownloadTask[]
+  enqueue(repo: string, files: string[]): Promise<void>
+  pause(id: string): Promise<void>
+  resume(id: string): Promise<void>
+  cancel(id: string): Promise<void>
+  shutdown(): Promise<void>
+}
+
 export interface LocalServiceOptions {
   dataDir: string
   // 测试注入：覆盖 local.json 中的模型目录。
@@ -65,6 +84,8 @@ export interface LocalServiceOptions {
   detect?: (preference: BackendPreference) => Promise<HardwareReport>
   installer?: RuntimeInstallerPort
   runtime?: LocalRuntimePort
+  hf?: HfPort
+  downloads?: DownloadManagerPort
   onSnapshot?: (snapshot: LocalSnapshot) => void
   now?: () => Date
 }
@@ -87,6 +108,10 @@ export class LocalService {
   private installProgress: LocalSnapshot['installProgress'] = null
   private readonly runtime: LocalRuntimePort
   private readonly installer: RuntimeInstallerPort
+  private hf!: HfPort
+  private downloads: DownloadManagerPort | null = null
+  // 安装/导入互斥：两条流程会并行解压到同一个运行时目录，进度与安装记录都会互相覆盖。
+  private installing = false
   private emitTimer: ReturnType<typeof setTimeout> | null = null
   private readonly now: () => Date
   private readonly fetchFn: FetchFn
@@ -160,6 +185,27 @@ export class LocalService {
     this.installs = await this.installer.listInstalled()
     await this.detect()
     await this.refreshModels()
+    this.hf =
+      this.options.hf ??
+      new HfClient({
+        fetchFn: this.fetchFn,
+        baseUrl: () => hfBaseUrl(this.settings),
+        token: () => this.options.secrets.getHfToken()
+      })
+    this.downloads =
+      this.options.downloads ??
+      (await DownloadManager.open({
+        dataDir: this.options.dataDir,
+        // 每次调用都重读：用户可能在设置页改过模型目录，下载要落到新目录里。
+        modelsDir: () => this.modelsDir,
+        baseUrl: () => hfBaseUrl(this.settings),
+        token: () => this.options.secrets.getHfToken(),
+        fetchFn: this.fetchFn,
+        now: this.now,
+        onUpdate: () => this.scheduleEmit(),
+        // 新文件落盘后立刻重扫模型并广播：界面不必等用户点刷新。
+        onDone: () => void this.refreshModels().catch(() => {})
+      }))
     // 启动时还没有加载任何模型：先让本地供应商退到「无模型」，别继承上次运行的列表。
     await this.options.hub.syncLocalProvider({ baseUrl: this.baseUrl, models: [] })
   }
@@ -186,7 +232,7 @@ export class LocalService {
       install: install ? { ...install, devices: [...install.devices] } : null,
       runtime: this.runtime.getStatus(),
       models: this.models.map((model) => ({ ...model })),
-      downloads: [],
+      downloads: this.downloads?.getTasks() ?? [],
       installProgress: this.installProgress ?? null,
       hfTokenSet: this.options.secrets.hasHfToken()
     }
@@ -230,15 +276,23 @@ export class LocalService {
     throw new Error(`invalid local backend: ${String(value)}`)
   }
 
+  // 互斥进入：第二个并发的安装/导入直接拒绝，而不是排队（用户重复点击时应当看到明确反馈）。
+  private beginInstall(): void {
+    if (this.installing) throw new Error('运行时安装已在进行中')
+    this.installing = true
+  }
+
   async installRuntime(backend?: LocalBackend): Promise<LocalSnapshot> {
     // 不传后端时沿用设置；显式传值（哪怕是空串）一律按白名单校验。
     const requested = backend === undefined ? undefined : this.assertBackend(backend)
     const target =
       requested ?? (this.settings.backend === 'auto' ? this.hardware.recommendedBackend : this.settings.backend)
+    this.beginInstall()
     try {
       const install = await this.installer.install(target)
       this.installs = (await this.installer.listInstalled()).filter((item) => item.backend !== target).concat(install)
     } finally {
+      this.installing = false
       // 成功或失败都要清进度并广播：否则界面会停在最后一个字节数上。
       this.clearInstallProgress()
     }
@@ -247,10 +301,12 @@ export class LocalService {
 
   async importRuntimeZip(zipPath: string): Promise<LocalSnapshot> {
     const backend = this.hardware.recommendedBackend
+    this.beginInstall()
     try {
       const install = await this.installer.importZip(zipPath, backend)
       this.installs = (await this.installer.listInstalled()).filter((item) => item.backend !== backend).concat(install)
     } finally {
+      this.installing = false
       this.clearInstallProgress()
     }
     return this.snapshot()
@@ -360,11 +416,50 @@ export class LocalService {
     return this.snapshot()
   }
 
+  // 搜索词是自由文本（用户输入什么就搜什么），只做细节接口与下载的仓库 ID 校验。
+  async searchHf(query: string): Promise<HfModelSummary[]> {
+    return await this.hf.search(query)
+  }
+
+  async getHfModel(repo: string): Promise<HfModelDetail> {
+    if (!isRepoId(repo)) throw new Error('模型 ID 必须形如 org/repo')
+    return await this.hf.model(repo)
+  }
+
+  async download(repo: string, files: string[]): Promise<LocalSnapshot> {
+    // 仓库 ID 来自渲染进程：先在这里拦一次，错误才能带着明确原因回到界面（下载器内部还会再校验）。
+    if (!isRepoId(repo)) throw new Error('模型 ID 必须形如 org/repo')
+    if (!this.downloads) throw new Error('下载器尚未初始化')
+    await this.downloads.enqueue(repo, files)
+    // 入队后立刻广播：队列卡片要马上出现，不能等第一次进度回调。
+    this.emitNow()
+    return this.snapshot()
+  }
+
+  async pauseDownload(id: string): Promise<LocalSnapshot> {
+    await this.downloads?.pause(id)
+    this.emitNow()
+    return this.snapshot()
+  }
+
+  async resumeDownload(id: string): Promise<LocalSnapshot> {
+    await this.downloads?.resume(id)
+    this.emitNow()
+    return this.snapshot()
+  }
+
+  async cancelDownload(id: string): Promise<LocalSnapshot> {
+    await this.downloads?.cancel(id)
+    this.emitNow()
+    return this.snapshot()
+  }
+
   async shutdown(): Promise<void> {
     if (this.emitTimer) {
       clearTimeout(this.emitTimer)
       this.emitTimer = null
     }
+    await this.downloads?.shutdown()
     await this.runtime.shutdown()
   }
 
