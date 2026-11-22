@@ -32,6 +32,8 @@ const TAIL_LINES = 20
 const MAX_PENDING_CHARS = 4000
 const DEFAULT_LOAD_TIMEOUT_MS = 180_000
 const DEFAULT_HEALTH_POLL_MS = 500
+// 单次探针的上限：连接可能挂死而不报错，没有这个上限 180s 总超时会被一次挂起的 fetch 无限拖住。
+const PROBE_TIMEOUT_MS = 5000
 
 /**
  * llama-server 的启动参数。契约：
@@ -108,8 +110,13 @@ export class LocalRuntime {
     this.options.onState?.(this.getStatus())
   }
 
-  /** 按行切分输出流，日志环只保存整行，最后一行残缺部分留到下一块数据或流结束时再落。 */
-  private attachLogs(child: ChildHandle): void {
+  /**
+   * 按行切分输出流，日志环只保存整行，最后一行残缺部分留到下一块数据或流结束时再落。
+   * 返回把两条流残留行都落盘的函数：子进程退出时 `close` 常常不带 `end`，
+   * 不主动 flush 就会丢掉最后那段（绑定端口失败之类的报错往往正好写在这里）。
+   */
+  private attachLogs(child: ChildHandle): () => void {
+    const flushes: Array<() => void> = []
     for (const stream of [child.stdout, child.stderr]) {
       if (!stream) continue
       let pending = ''
@@ -118,6 +125,7 @@ export class LocalRuntime {
         this.appendLog(pending)
         pending = ''
       }
+      flushes.push(flush)
       stream.on('data', (chunk: Buffer | string) => {
         pending += String(chunk)
         const lines = pending.split(/\r?\n/)
@@ -127,25 +135,37 @@ export class LocalRuntime {
       })
       stream.on('end', flush)
     }
+    return () => {
+      for (const flush of flushes) flush()
+    }
   }
 
-  private async probeHealthy(base: string): Promise<boolean> {
+  /** 单次探针的超时信号：最多等 `PROBE_TIMEOUT_MS`，且不超过本次 load 的剩余时间。 */
+  private probeSignal(deadline: number): AbortSignal {
+    const remaining = deadline - Date.now()
+    return AbortSignal.timeout(Math.max(1, Math.min(PROBE_TIMEOUT_MS, remaining)))
+  }
+
+  private async probeHealthy(base: string, signal: AbortSignal): Promise<boolean> {
     try {
-      const response = await this.options.fetchFn(`${base}/health`)
+      const response = await this.options.fetchFn(`${base}/health`, { signal })
       const ok = response.ok
       // 健康探针每秒一次，不消费响应体会让连接一直被 undici 占着。
       await response.body?.cancel().catch(() => {})
       return ok
     } catch {
-      // 进程还没开始监听，按未就绪处理。
+      // 未开始监听、连接挂到超时被 abort：都按未就绪处理，交给轮询/总超时决定结果。
       return false
     }
   }
 
-  /** `/props` 给出 llama-server 实际生效的上下文（-c 可能被模型上限截断），失败时沿用请求值。 */
-  private async readContext(base: string, fallback: number): Promise<number> {
+  /**
+   * `/props` 给出 llama-server 实际生效的上下文（-c 可能被模型上限截断）。
+   * 非 2xx、解析失败、超时被 abort 时都沿用请求值；`/props` 卡住不影响已就绪的推理服务。
+   */
+  private async readContext(base: string, fallback: number, signal: AbortSignal): Promise<number> {
     try {
-      const response = await this.options.fetchFn(`${base}/props`)
+      const response = await this.options.fetchFn(`${base}/props`, { signal })
       if (!response.ok) return fallback
       const props = (await response.json()) as { default_generation_settings?: { n_ctx?: unknown } }
       const nCtx = props.default_generation_settings?.n_ctx
@@ -159,6 +179,7 @@ export class LocalRuntime {
    * 启动 llama-server 并等待 `/health` 就绪。
    * 失败（未安装运行时、spawn 抛错、进程退出、健康检查超时）只把状态置为 error，不向调用方抛错；
    * 上层从 `getStatus()` 与 `setOnExit` 观察结果。
+   * 每次 await 之后都重新确认「还是同一个进程、同一次 load」，否则会覆盖退出/停止路径写入的状态。
    */
   async load(model: { modelId: string; modelPath: string }, backend: LocalBackend, contextSize: number): Promise<void> {
     await this.stop()
@@ -193,13 +214,15 @@ export class LocalRuntime {
       return
     }
     this.child = child
-    this.attachLogs(child)
+    const flushLogs = this.attachLogs(child)
     child.once('exit', (code) => {
       // 主动 stop/kill 时 this.child 已被清空，或已被新的 load 顶替：这次退出既不算当前进程状态也不报错，
       // 更不能翻转 childExited，否则会把新进程的等待循环误判成「已退出」。
       if (this.child !== child) return
       this.childExited = true
       this.child = null
+      // 退出前把没有换行结尾的最后一段输出落进日志（端口被占用等报错通常就在这里）。
+      flushLogs()
       this.emit({ phase: 'error', error: `llama-server 退出（code ${code ?? 'unknown'}）` })
       this.exitHook?.()
     })
@@ -208,14 +231,19 @@ export class LocalRuntime {
     const pollMs = this.options.healthPollMs ?? DEFAULT_HEALTH_POLL_MS
     const deadline = Date.now() + timeoutMs
     const base = `http://127.0.0.1:${port}`
+    // 进程已退出、被 stop 顶掉（loadToken 变了）或换了新进程时，本次 load 必须立刻收手。
+    const stillCurrent = (): boolean => !this.childExited && token === this.loadToken && this.child === child
 
     while (Date.now() < deadline) {
-      if (this.childExited || token !== this.loadToken) return
-      const healthy = await this.probeHealthy(base)
+      if (!stillCurrent()) return
+      const healthy = await this.probeHealthy(base, this.probeSignal(deadline))
       // 探针在途期间进程可能已经退出或被新的 load 顶替，此时不能把状态改回 running。
-      if (this.childExited || token !== this.loadToken) return
+      if (!stillCurrent()) return
       if (healthy) {
-        this.emit({ phase: 'running', error: null, contextLength: await this.readContext(base, contextSize) })
+        const actualContext = await this.readContext(base, contextSize, this.probeSignal(deadline))
+        // `/props` 在途期间同理：退出/停止路径已经写过 error/stopped，这里只能保留，不能翻成 running。
+        if (!stillCurrent()) return
+        this.emit({ phase: 'running', error: null, contextLength: actualContext })
         return
       }
       await new Promise((resolve) => setTimeout(resolve, pollMs))
@@ -225,7 +253,11 @@ export class LocalRuntime {
     await this.kill()
   }
 
-  /** 立即结束子进程：先 kill，再用 taskkill 兜底进程树；不做任何等待或优雅收尾。 */
+  /**
+   * 立即结束子进程：先 kill，再用 taskkill 兜底进程树；不做任何等待或优雅收尾。
+   * `killTree` 在生产环境必须注入：`kill()` 抛错或只杀掉直接子进程时，进程树会脱离跟踪，
+   * 没有 taskkill 兜底就再也停不下来。
+   */
   private async kill(): Promise<void> {
     const child = this.child
     this.child = null
@@ -241,10 +273,9 @@ export class LocalRuntime {
 
   async stop(): Promise<void> {
     this.loadToken += 1
-    const keepNotInstalled = this.status.phase === 'not-installed'
     await this.kill()
     this.logs = []
-    this.emit({ ...idleStatus(), phase: keepNotInstalled ? 'not-installed' : 'stopped' })
+    this.emit(idleStatus())
   }
 
   async shutdown(): Promise<void> {
