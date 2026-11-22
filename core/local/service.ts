@@ -330,6 +330,12 @@ export class LocalService {
     try {
       const install = await this.installer.install(target)
       this.installs = (await this.installer.listInstalled()).filter((item) => item.backend !== target).concat(install)
+    } catch (error) {
+      // 打包后界面只能看到一次 toast；落盘保存失败原因，便于事后定位下载/解压/校验阶段。
+      void this.options.logger?.error(
+        `runtime install failed (${target}): ${error instanceof Error ? error.message : String(error)}`
+      )
+      throw error
     } finally {
       this.installing = false
       // 成功或失败都要清进度并广播：否则界面会停在最后一个字节数上。
@@ -345,6 +351,11 @@ export class LocalService {
     try {
       const install = await this.installer.importZip(zipPath, backend)
       this.installs = (await this.installer.listInstalled()).filter((item) => item.backend !== backend).concat(install)
+    } catch (error) {
+      void this.options.logger?.error(
+        `runtime import failed (${backend}, ${zipPath}): ${error instanceof Error ? error.message : String(error)}`
+      )
+      throw error
     } finally {
       this.installing = false
       this.clearInstallProgress()
@@ -395,6 +406,7 @@ export class LocalService {
     const status = this.runtime.getStatus()
     if (status.phase !== 'running') {
       // 上一次加载成功的模型已经被这次 load 停掉了，供应商必须跟着清空，不能继续路由到已死的进程。
+      void this.options.logger?.error(`local model load failed (${model.id}): ${status.error ?? 'unknown error'}`)
       this.models = this.models.map((candidate) => ({ ...candidate, loaded: false }))
       await this.options.hub.syncLocalProvider({ baseUrl: this.baseUrl, models: [] }).catch(() => {})
       this.emitNow()

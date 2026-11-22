@@ -1,5 +1,5 @@
 import { app, BrowserWindow, Tray, Menu, nativeImage, dialog, clipboard } from 'electron'
-import { mkdirSync } from 'node:fs'
+import { appendFileSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { autoUpdater } from 'electron-updater'
 import { Hub } from '../core/hub'
@@ -31,6 +31,26 @@ if (dataDir) {
   mkdirSync(dataDir, { recursive: true })
   app.setPath('userData', dataDir)
 }
+
+// 打包后看不到 stderr；未捕获异常与启动失败必须留下可追溯的堆栈，否则只能靠用户口述弹窗。
+function logFatal(scope: string, error: unknown): void {
+  try {
+    const dir = join(app.getPath('userData'), 'logs')
+    mkdirSync(dir, { recursive: true })
+    const detail = error instanceof Error ? (error.stack ?? error.message) : String(error)
+    appendFileSync(join(dir, 'app-error.log'), `${new Date().toISOString()} ${scope} ${detail}\n`, 'utf8')
+  } catch {
+    // 诊断落盘失败不能反过来阻断报错/退出。
+  }
+}
+
+process.on('uncaughtException', (error) => {
+  logFatal('uncaughtException', error)
+  dialog.showErrorBox('TokenHUB 发生错误', error.message)
+})
+process.on('unhandledRejection', (reason) => {
+  logFatal('unhandledRejection', reason)
+})
 
 // 红：所有供应商都不可路由；黄：任一供应商额度耗尽/限流；绿：其余情况。
 function trayColor(state: AppState): [number, number, number] {
@@ -190,6 +210,7 @@ if (!app.requestSingleInstanceLock()) {
     .whenReady()
     .then(boot)
     .catch((error) => {
+      logFatal('boot', error)
       dialog.showErrorBox('TokenHUB 启动失败', error instanceof Error ? error.message : String(error))
       app.quit()
     })
