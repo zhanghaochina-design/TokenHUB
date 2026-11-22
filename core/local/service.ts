@@ -112,6 +112,8 @@ export class LocalService {
   private downloads: DownloadManagerPort | null = null
   // 安装/导入互斥：两条流程会并行解压到同一个运行时目录，进度与安装记录都会互相覆盖。
   private installing = false
+  // 扫描令牌：下载完成的重扫、设置页刷新、删除模型都可能同时发起扫描，只有最后发起的那一次能写回结果。
+  private scanToken = 0
   private emitTimer: ReturnType<typeof setTimeout> | null = null
   private readonly now: () => Date
   private readonly fetchFn: FetchFn
@@ -330,7 +332,10 @@ export class LocalService {
   }
 
   async refreshModels(): Promise<LocalSnapshot> {
+    const token = ++this.scanToken
     const scanned = await scanModels(this.modelsDir)
+    // 期间有更晚的扫描发起：本次读到的已是旧目录内容，写回会把新结果覆盖掉，只能让位。
+    if (token !== this.scanToken) return this.snapshot()
     const status = this.runtime.getStatus()
     // 只有进程真的在跑才能标 loaded：崩溃/停止后 runtime 仍可能保留 modelId，不能凭 id 相等就点亮。
     const runningId = status.phase === 'running' ? status.modelId : null

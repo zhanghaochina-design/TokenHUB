@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto'
-import { mkdir, readFile, rm, stat, statfs, writeFile } from 'node:fs/promises'
+import { readFile, rm, stat, statfs } from 'node:fs/promises'
 import { join } from 'node:path'
+import { writeFileAtomic } from '../store/fsUtil'
 import { hfResolveUrl, isRepoId } from './hf'
 import { downloadFile, type FetchFn } from './http'
 import { isSafeRelativePath } from './library'
-import type { DownloadTask } from './types'
+import type { DownloadPhase, DownloadTask } from './types'
 
 export interface DownloadManagerOptions {
   dataDir: string
@@ -25,9 +26,48 @@ const MAX_PARALLEL = 2
 // 速度按 1 秒窗口采样：每个 chunk 都重算会让界面数字抖成噪声。
 const SPEED_WINDOW_MS = 1_000
 const WAIT_INTERVAL_MS = 5
+// 退出时最多等这么久：注入/自定义的 fetch 可能完全不理会 abort，不能让关闭流程被一条挂死的请求拖住。
+// 超时后把仍在 downloading 的任务记成 paused，重启后用户还能续传。
+const SHUTDOWN_TIMEOUT_MS = 5_000
 
 function downloadFileOf(dataDir: string): string {
   return join(dataDir, 'local', 'downloads.json')
+}
+
+// 只有真正「在跑」的任务才占着目标文件；paused/error/canceled 的残留不会写盘，可以重新入队。
+const ACTIVE_PHASES = new Set<DownloadPhase>(['queued', 'downloading'])
+
+/**
+ * 找出一条已被排队/下载中的任务占用的文件（同一仓库、同一相对路径）。两条任务写同一个 `.part`
+ * 会交错追加、得到拼接错乱的模型文件，所以入队与续传都必须先做这个重叠检查。
+ * `excludeId` 供 resume 使用：任务自己不能和自己冲突。
+ */
+function overlapWith(repo: string, files: string[], tasks: DownloadTask[], excludeId?: string): string | null {
+  for (const task of tasks) {
+    if (task.id === excludeId || task.repo !== repo || !ACTIVE_PHASES.has(task.phase)) continue
+    const taken = new Set(task.files.map((file) => file.path))
+    const hit = files.find((file) => taken.has(file))
+    if (hit) return hit
+  }
+  return null
+}
+
+// 等全部下载退出，但最多等到 `timeoutMs`：返回时不再关心是否真的有任务还在挂。
+function settleWithTimeout(promises: Promise<void>[], timeoutMs: number): Promise<void> {
+  return new Promise<void>((resolve) => {
+    const timer = setTimeout(finish, timeoutMs)
+    function finish(): void {
+      clearTimeout(timer)
+      resolve()
+    }
+    void Promise.all(promises).then(finish, finish)
+  })
+}
+
+// 重启时只有「本该在跑」的任务需要降级为暂停；done/canceled/error 是用户已经看到过的终态，
+// 改写成 paused 会让「已取消」的任务被复活、也让错误文案配上错误的状态。
+function restoredPhase(phase: unknown): DownloadPhase {
+  return phase === 'done' || phase === 'canceled' || phase === 'error' ? phase : 'paused'
 }
 
 // 旧文件可能被手改或被部分写入：只认形状完整的任务，坏记录直接丢弃，不能让整个下载队列打不开。
@@ -52,7 +92,7 @@ function restoredTasks(parsed: unknown): DownloadTask[] {
       repo,
       files,
       // 打开时绝不自动续传：重启后突然抢带宽会像是程序在偷偷下载，必须等用户点继续。
-      phase: task.phase === 'done' ? 'done' : 'paused',
+      phase: restoredPhase(task.phase),
       error: typeof task.error === 'string' ? task.error : null,
       speedBps: null,
       createdAt: typeof task.createdAt === 'string' ? task.createdAt : '',
@@ -94,8 +134,8 @@ export class DownloadManager {
   }
 
   private async persist(): Promise<void> {
-    await mkdir(join(this.options.dataDir, 'local'), { recursive: true })
-    await writeFile(downloadFileOf(this.options.dataDir), JSON.stringify(this.tasks, null, 2), 'utf8')
+    // 原子写：退出/状态切换时被强杀，半截 JSON 会让整个下载队列在下次启动时被丢弃。
+    await writeFileAtomic(downloadFileOf(this.options.dataDir), JSON.stringify(this.tasks, null, 2))
   }
 
   private update(id: string, patch: Partial<DownloadTask>): void {
@@ -114,6 +154,8 @@ export class DownloadManager {
     for (const file of normalized) {
       if (!isSafeRelativePath(file)) throw new Error(`不安全的下载路径：${file}`)
     }
+    // 重复入队必须在建任务之前拒绝：两条任务写同一个 `.part` 只会得到交错错乱的文件。
+    if (overlapWith(repo, normalized, this.tasks)) throw new Error('该文件已在下载队列中')
     const available = await this.freeSpace(this.options.modelsDir())
     if (available < MIN_FREE_BYTES) throw new Error('模型目录所在磁盘空间不足（至少需要 2 GB 可用）')
     const now = this.now().toISOString()
@@ -152,6 +194,10 @@ export class DownloadManager {
     // 已完成/已取消/已在队列里的任务再 resume 只会多开一条下载，必须忽略。
     if (!task || task.phase === 'done' || task.phase === 'canceled' || task.phase === 'queued') return
     if (task.phase === 'downloading') return
+    // 续传前再查一次：暂停期间同一文件可能已被另一条任务接手，此时续传会写坏该任务的 `.part`。
+    if (overlapWith(task.repo, task.files.map((file) => file.path), this.tasks, task.id)) {
+      throw new Error('该文件已在下载队列中')
+    }
     // 等上一轮中止真正退出：否则新旧两次写同一个 `.part` 会交错。
     await this.settling.get(id)?.catch(() => {})
     this.update(id, { phase: 'queued', error: null, speedBps: null })
@@ -272,9 +318,20 @@ export class DownloadManager {
   async shutdown(): Promise<void> {
     for (const aborter of this.aborters.values()) aborter.abort()
     this.aborters.clear()
-    // 等下载真正退出再落盘，否则最后几字节的进度会被覆盖回旧值。
-    await Promise.all([...this.settling.values()].map((promise) => promise.catch(() => {})))
-    await this.persist()
+    // 等下载真正退出再落盘，否则最后几字节的进度会被覆盖回旧值；但最多等 SHUTDOWN_TIMEOUT_MS，
+    // 否则一条不理会 abort 的请求会让整个应用退不掉。
+    await settleWithTimeout(
+      [...this.settling.values()].map((promise) => promise.catch(() => {})),
+      SHUTDOWN_TIMEOUT_MS
+    )
+    if (this.tasks.some((task) => task.phase === 'downloading')) {
+      // 超时退出的任务不会自己走到 paused：落盘前手动收敛，重启后是「可续传的暂停」而不是永远在下载。
+      const updatedAt = this.now().toISOString()
+      this.tasks = this.tasks.map((task) =>
+        task.phase === 'downloading' ? { ...task, phase: 'paused', speedBps: null, updatedAt } : task
+      )
+    }
+    await this.persist().catch(() => {})
   }
 }
 

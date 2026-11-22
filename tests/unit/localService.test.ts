@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, readdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { FetchFn } from '../../core/local/http'
 import { DEFAULT_LOCAL_SETTINGS } from '../../core/local/settings'
 import {
@@ -18,6 +18,23 @@ import type {
   LocalSnapshot,
   RuntimeInstall
 } from '../../core/local/types'
+
+// 目录读取后的可控延迟：只有竞态用例会把它置为非 0，其余用例保持原样直通。
+const fsGate = vi.hoisted(() => ({ readdirDelayMs: 0 }))
+
+// 只包装 readdir，用来复现「先发起的扫描读到旧目录、却比后发起的扫描更晚返回」：
+// scanModels 没有注入点，只能在这里制造时序，让令牌校验有可观测的行为。
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>()
+  const actualReaddir = actual.readdir as unknown as (...args: unknown[]) => Promise<unknown>
+  const delayedReaddir = async (...args: unknown[]): Promise<unknown> => {
+    const delay = fsGate.readdirDelayMs
+    const result = await actualReaddir(...args)
+    if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay))
+    return result
+  }
+  return { ...actual, readdir: delayedReaddir as unknown as typeof actual.readdir }
+})
 
 const install: RuntimeInstall = {
   backend: 'vulkan',
@@ -532,6 +549,27 @@ describe('LocalService', () => {
       'cancel:t1',
       'shutdown'
     ])
+  })
+
+  it('ignores an older model scan that returns after a newer one', async () => {
+    const { service, modelsDir } = await createHarness({ files: ['Old-Q4_K_M.gguf'] })
+    expect(service.getSnapshot().models.map((model) => model.id)).toEqual(['Old-Q4_K_M'])
+
+    // A 先读目录（只看到旧文件），随后在返回前被压住 300ms；B 读完目录就直接返回。
+    fsGate.readdirDelayMs = 300
+    const stale = service.refreshModels()
+    fsGate.readdirDelayMs = 0
+    // 等 A 的目录读取真正落地再改目录：确保 A 手上是旧内容，而不是碰巧读到了新文件。
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    await writeFile(join(modelsDir, 'New-Q4_K_M.gguf'), 'gguf')
+
+    const fresh = await service.refreshModels()
+    expect(fresh.models.map((model) => model.id)).toEqual(['New-Q4_K_M', 'Old-Q4_K_M'])
+
+    await stale
+    // A 的结果已经过期：回来后必须让位，不能把新结果覆盖成只剩旧文件。
+    expect(service.getSnapshot().models.map((model) => model.id)).toEqual(['New-Q4_K_M', 'Old-Q4_K_M'])
+    await service.shutdown()
   })
 
   it('rescans models and broadcasts a snapshot when a download finishes', async () => {

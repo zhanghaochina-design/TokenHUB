@@ -196,22 +196,34 @@ describe('DownloadManager', () => {
     await manager.shutdown()
   })
 
-  it('removes the partial file when a task is canceled', async () => {
+  it('removes the partial file when an in-flight task is canceled', async () => {
     const dataDir = await mkdtemp(join(tmpdir(), 'tokenhub-dl-'))
     const modelsDir = join(dataDir, 'models')
-    await mkdir(join(modelsDir, 'Org', 'Repo'), { recursive: true })
-    await writeFile(join(modelsDir, 'Org', 'Repo', 'm.gguf.part'), 'abcd')
+    const fetchFn: FetchFn = async (_url, init) => {
+      // 真 fetch 被中断时会报错响应体：这里照抄这个语义，否则 pipeline 会一直等下一块数据，跑不出取消。
+      let stream: ReadableStreamDefaultController<Uint8Array> | null = null
+      const pending = new ReadableStream<Uint8Array>({
+        start(controller) {
+          stream = controller
+          controller.enqueue(encoder.encode('abcd'))
+        }
+      })
+      init?.signal?.addEventListener('abort', () => stream?.error(new Error('aborted')))
+      return new Response(pending, { status: 200, headers: { 'content-length': '100' } })
+    }
     const manager = await DownloadManager.open({
       dataDir,
       modelsDir: () => modelsDir,
       baseUrl: () => 'https://huggingface.co',
       token: () => null,
-      fetchFn: async () => new Response('x', { status: 200 }),
+      fetchFn,
       freeSpace: async () => 10 * GB
     })
     await manager.enqueue('Org/Repo', ['m.gguf'])
-    await manager.waitForIdle()
+    // 等首批字节真正落到 `.part`：取消要验证的是「下载途中作废」，不是空闲任务的状态迁移。
+    await waitUntil(() => (manager.getTasks()[0]?.files[0].receivedBytes ?? 0) >= 4)
     const id = manager.getTasks()[0].id
+    expect(manager.getTasks()[0].phase).toBe('downloading')
 
     await manager.cancel(id)
 
@@ -224,4 +236,103 @@ describe('DownloadManager', () => {
     expect(manager.getTasks()[0].phase).toBe('canceled')
     await manager.shutdown()
   })
+
+  it('rejects a duplicate task for a file that is already queued or downloading', async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), 'tokenhub-dl-'))
+    const modelsDir = join(dataDir, 'models')
+    // 永不返回（只在 abort 时 reject）：让首条任务一直停在 downloading。
+    const fetchFn: FetchFn = (_url, init) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(new Error('aborted')))
+      })
+    const manager = await DownloadManager.open({
+      dataDir,
+      modelsDir: () => modelsDir,
+      baseUrl: () => 'https://huggingface.co',
+      token: () => null,
+      fetchFn,
+      freeSpace: async () => 10 * GB
+    })
+    await manager.enqueue('Org/Repo', ['a.gguf'])
+    await waitUntil(() => manager.getTasks()[0]?.phase === 'downloading')
+
+    // 同一仓库同一路径会写同一个 `.part`：重复入队必须在建任务之前被拒，队列里仍只有一条。
+    await expect(manager.enqueue('Org/Repo', ['a.gguf'])).rejects.toThrow('该文件已在下载队列中')
+    await expect(manager.enqueue('Org/Repo', ['a.gguf', 'b.gguf'])).rejects.toThrow('该文件已在下载队列中')
+    expect(manager.getTasks()).toHaveLength(1)
+
+    // 没有交集的请求不受影响：不同文件、不同仓库的同名文件落在不同目录。
+    await manager.enqueue('Org/Repo', ['b.gguf'])
+    await manager.enqueue('Other/Repo', ['a.gguf'])
+    expect(manager.getTasks()).toHaveLength(3)
+    await manager.shutdown()
+  })
+
+  it('keeps canceled and error tasks as-is when reopened', async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), 'tokenhub-dl-'))
+    await mkdir(join(dataDir, 'local'), { recursive: true })
+    const persisted = (id: string, path: string, phase: string, error: string | null = null) => ({
+      id,
+      repo: 'Org/Repo',
+      files: [{ path, totalBytes: 4, receivedBytes: 1 }],
+      phase,
+      error,
+      speedBps: null,
+      createdAt: 'x',
+      updatedAt: 'x'
+    })
+    await writeFile(
+      join(dataDir, 'local', 'downloads.json'),
+      JSON.stringify([
+        persisted('c1', 'a.gguf', 'canceled'),
+        persisted('e1', 'b.gguf', 'error', 'download failed: HTTP 500'),
+        persisted('q1', 'c.gguf', 'queued'),
+        persisted('d1', 'd.gguf', 'downloading')
+      ])
+    )
+    const manager = await DownloadManager.open({
+      dataDir,
+      modelsDir: () => join(dataDir, 'models'),
+      baseUrl: () => 'https://huggingface.co',
+      token: () => null,
+      fetchFn: async () => new Response('x', { status: 200 }),
+      freeSpace: async () => 10 * GB
+    })
+    const byId = new Map(manager.getTasks().map((entry) => [entry.id, entry]))
+
+    // 只有「本该在跑」的两种状态降级为暂停；取消/失败是用户已经看到过的终态，不能被改写。
+    expect(byId.get('c1')?.phase).toBe('canceled')
+    expect(byId.get('e1')).toMatchObject({ phase: 'error', error: 'download failed: HTTP 500' })
+    expect(byId.get('q1')?.phase).toBe('paused')
+    expect(byId.get('d1')?.phase).toBe('paused')
+
+    await manager.resume('c1')
+    expect(manager.getTasks().find((entry) => entry.id === 'c1')?.phase).toBe('canceled')
+    await manager.shutdown()
+  })
+
+  it('resolves shutdown even when a fetch ignores the abort signal', async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), 'tokenhub-dl-'))
+    const manager = await DownloadManager.open({
+      dataDir,
+      modelsDir: () => join(dataDir, 'models'),
+      baseUrl: () => 'https://huggingface.co',
+      token: () => null,
+      // 既不理会 signal 也永不返回：只能靠 shutdown 自己的超时兜底。
+      fetchFn: () => new Promise<Response>(() => {}),
+      freeSpace: async () => 10 * GB
+    })
+    await manager.enqueue('Org/Repo', ['a.gguf'])
+    await waitUntil(() => manager.getTasks()[0]?.phase === 'downloading')
+
+    const startedAt = Date.now()
+    await manager.shutdown()
+    expect(Date.now() - startedAt).toBeLessThan(6_000)
+    // 超时收敛成 paused：重启后是「可续传的暂停」，而不是永远挂在下载中。
+    expect(manager.getTasks()[0].phase).toBe('paused')
+    const persisted = JSON.parse(await readFile(join(dataDir, 'local', 'downloads.json'), 'utf8')) as Array<{
+      phase: string
+    }>
+    expect(persisted[0].phase).toBe('paused')
+  }, 15_000)
 })
