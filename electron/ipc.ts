@@ -1,7 +1,7 @@
 import { app, dialog, ipcMain, shell } from 'electron'
 import type { Hub } from '../core/hub'
 import type { LocalService } from '../core/local/service'
-import type { LocalBackend, LocalSettings } from '../core/local/types'
+import type { LocalBackend, LocalLoadOptions, LocalSettings } from '../core/local/types'
 import type { ProviderInput, ProviderPatch, TokenHubApi, UpdateState } from '../core/ipc-types'
 import type { AppState, ModelAlias, ModelMeta, Settings } from '../core/types'
 import type { UpdateController } from './updateController'
@@ -73,7 +73,7 @@ export function registerIpc(
     if (picked.canceled || picked.filePaths.length === 0) return null
     return await local.importRuntimeZip(picked.filePaths[0])
   })
-  ipcMain.handle('tokenhub:local:loadModel', (_e, id: string, contextSize?: number) => local.loadModel(id, contextSize))
+  ipcMain.handle('tokenhub:local:loadModel', (_e, id: string, options?: LocalLoadOptions) => local.loadModel(id, options))
   ipcMain.handle('tokenhub:local:stopModel', () => local.stopModel())
   ipcMain.handle('tokenhub:local:deleteModel', (_e, id: string) => local.deleteModel(id))
   ipcMain.handle('tokenhub:local:refreshModels', () => local.refreshModels())

@@ -1,5 +1,5 @@
 import type { FetchFn } from './http'
-import type { LocalBackend, LocalRuntimeStatus, RuntimeInstall } from './types'
+import type { KvCacheType, LocalBackend, LocalRuntimeStatus, RopeScaling, RuntimeInstall } from './types'
 
 export interface ChildHandle {
   pid?: number
@@ -41,8 +41,11 @@ const PROBE_TIMEOUT_MS = 5000
  * - `-ngl 99` 全部层交给 GPU，CPU 后端由 llama.cpp 自行忽略；
  * - `-np 1` 单并发槽，与本地网关「一次只服务一个会话」的口径一致；
  * - `--jinja` 使用模型自带聊天模板，网关转译不注入模板；
- * - `-fa off`：Vulkan 上 Flash Attention 的 prefill 明显慢于普通注意力（长 prompt 实测差约 39%），
+ * - `-fa off`（f16 KV）：Vulkan 上 Flash Attention 的 prefill 明显慢于普通注意力（长 prompt 实测差约 39%），
  *   关掉只让几百 token 以内的 prompt 多约 0.1s、生成慢约 2%；
+ * - 量化 KV（q8_0/q4_0）必须 `-fa on`：llama.cpp 对非 f16 的 V 缓存强制要求 Flash Attention；
+ * - `--rope-scaling yarn` 只在目标上下文超过模型训练长度时下发，scale = 目标 / 训练长度，
+ *   llama.cpp 会据此把每槽上下文上限重算为训练长度 × scale；
  * - `--device` 只在用户显式选了某块卡时下发，把卸载限定到该设备；缺省由 llama.cpp 自行选择。
  */
 export function buildLlamaArgs(input: {
@@ -51,18 +54,26 @@ export function buildLlamaArgs(input: {
   contextSize: number
   parallel: number
   device?: string | null
+  kvCache?: KvCacheType
+  rope?: RopeScaling | null
 }): string[] {
-  return [
+  const kvCache = input.kvCache ?? 'f16'
+  const args = [
     '-m', input.modelPath,
     '--host', '127.0.0.1',
     '--port', String(input.port),
     '-c', String(input.contextSize),
     '-ngl', '99',
     ...(input.device ? ['--device', input.device] : []),
-    '-np', String(input.parallel),
-    '-fa', 'off',
-    '--jinja'
+    '-np', String(input.parallel)
   ]
+  if (kvCache !== 'f16') args.push('-ctk', kvCache, '-ctv', kvCache)
+  args.push('-fa', kvCache === 'f16' ? 'off' : 'on')
+  if (input.rope && input.rope.scale > 1) {
+    args.push('--rope-scaling', 'yarn', '--rope-scale', String(input.rope.scale), '--yarn-orig-ctx', String(input.rope.origContext))
+  }
+  args.push('--jinja')
+  return args
 }
 
 function idleStatus(): LocalRuntimeStatus {
@@ -196,7 +207,8 @@ export class LocalRuntime {
     model: { modelId: string; modelPath: string },
     backend: LocalBackend,
     contextSize: number,
-    device?: string | null
+    device?: string | null,
+    options?: { kvCache?: KvCacheType; rope?: RopeScaling | null }
   ): Promise<void> {
     await this.stop()
     const token = ++this.loadToken
@@ -221,7 +233,15 @@ export class LocalRuntime {
       startedAt: this.now().toISOString()
     })
 
-    const args = buildLlamaArgs({ modelPath: model.modelPath, port, contextSize, parallel: 1, device })
+    const args = buildLlamaArgs({
+      modelPath: model.modelPath,
+      port,
+      contextSize,
+      parallel: 1,
+      device,
+      kvCache: options?.kvCache,
+      rope: options?.rope
+    })
     let child: ChildHandle
     try {
       child = this.options.spawnPorts.spawn(install.exePath, args, { windowsHide: true })

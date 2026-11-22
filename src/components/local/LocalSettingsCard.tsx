@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
-import type { BackendPreference, HfEndpointKind, LocalSnapshot } from '../../../core/local/types'
-import { errorMessage } from '../../lib/format'
+import { KV_CACHE_TYPES, MAX_CONTEXT_TOKENS, MIN_CONTEXT_TOKENS } from '../../../core/local/settings'
+import type { BackendPreference, HfEndpointKind, KvCacheType, LocalSnapshot } from '../../../core/local/types'
+import { errorMessage, formatNumber } from '../../lib/format'
 
 const BACKEND_OPTIONS: Array<{ value: BackendPreference; label: string }> = [
   { value: 'auto', label: '自动（按硬件推荐）' },
@@ -9,6 +10,12 @@ const BACKEND_OPTIONS: Array<{ value: BackendPreference; label: string }> = [
   { value: 'rocm', label: 'ROCm（AMD）' },
   { value: 'cpu', label: 'CPU' }
 ]
+
+const KV_CACHE_LABELS: Record<KvCacheType, string> = {
+  f16: 'f16（质量最好）',
+  q8_0: 'q8_0（推荐）',
+  q4_0: 'q4_0（最省显存）'
+}
 
 export function LocalSettingsCard({ snapshot, onError }: { snapshot: LocalSnapshot; onError: (message: string) => void }) {
   const settings = snapshot.settings
@@ -20,6 +27,7 @@ export function LocalSettingsCard({ snapshot, onError }: { snapshot: LocalSnapsh
   const [hfEndpoint, setHfEndpoint] = useState<HfEndpointKind>(settings.hfEndpoint)
   const [hfCustom, setHfCustom] = useState(settings.hfEndpointCustom)
   const [context, setContext] = useState(String(settings.defaultContext))
+  const [kvCache, setKvCache] = useState<KvCacheType>(settings.kvCache)
   const [token, setToken] = useState('')
   const [saving, setSaving] = useState(false)
   const [picking, setPicking] = useState(false)
@@ -36,6 +44,7 @@ export function LocalSettingsCard({ snapshot, onError }: { snapshot: LocalSnapsh
     setHfEndpoint(settings.hfEndpoint)
     setHfCustom(settings.hfEndpointCustom)
     setContext(String(settings.defaultContext))
+    setKvCache(settings.kvCache)
   }, [
     settings.modelsDir,
     settings.localPort,
@@ -43,7 +52,8 @@ export function LocalSettingsCard({ snapshot, onError }: { snapshot: LocalSnapsh
     settings.githubMirror,
     settings.hfEndpoint,
     settings.hfEndpointCustom,
-    settings.defaultContext
+    settings.defaultContext,
+    settings.kvCache
   ])
 
   async function pickModelsDir() {
@@ -68,8 +78,8 @@ export function LocalSettingsCard({ snapshot, onError }: { snapshot: LocalSnapsh
       return
     }
     const contextValue = Number(context)
-    if (!Number.isInteger(contextValue) || contextValue < 512 || contextValue > 262144) {
-      onError('默认上下文必须是 512-262144 之间的整数。')
+    if (!Number.isInteger(contextValue) || contextValue < MIN_CONTEXT_TOKENS || contextValue > MAX_CONTEXT_TOKENS) {
+      onError(`默认上下文必须是 ${MIN_CONTEXT_TOKENS}-${formatNumber(MAX_CONTEXT_TOKENS)} 之间的整数。`)
       return
     }
     if (hfEndpoint === 'custom' && !hfCustom.trim()) {
@@ -85,7 +95,8 @@ export function LocalSettingsCard({ snapshot, onError }: { snapshot: LocalSnapsh
         githubMirror: mirror.trim(),
         hfEndpoint,
         hfEndpointCustom: hfCustom.trim(),
-        defaultContext: contextValue
+        defaultContext: contextValue,
+        kvCache
       })
     } catch (error) {
       onError(`保存失败：${errorMessage(error)}`)
@@ -155,13 +166,27 @@ export function LocalSettingsCard({ snapshot, onError }: { snapshot: LocalSnapsh
           />
         </label>
         <label className="text-xs text-muted">
-          默认上下文
+          默认上下文（{formatNumber(MIN_CONTEXT_TOKENS)}–{formatNumber(MAX_CONTEXT_TOKENS)}）
           <input
             className={`${input} mt-1`}
             inputMode="numeric"
             value={context}
             onChange={(event) => setContext(event.target.value)}
           />
+        </label>
+        <label className="text-xs text-muted">
+          默认 KV 精度（量化需 Flash Attention）
+          <select
+            className={`${input} mt-1`}
+            value={kvCache}
+            onChange={(event) => setKvCache(event.target.value as KvCacheType)}
+          >
+            {KV_CACHE_TYPES.map((type) => (
+              <option key={type} value={type}>
+                {KV_CACHE_LABELS[type]}
+              </option>
+            ))}
+          </select>
         </label>
         <label className="text-xs text-muted">
           后端偏好

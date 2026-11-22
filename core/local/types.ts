@@ -1,6 +1,8 @@
 export type LocalBackend = 'cuda' | 'vulkan' | 'rocm' | 'cpu'
 export type BackendPreference = 'auto' | LocalBackend
 export type HfEndpointKind = 'official' | 'mirror' | 'custom'
+// KV 量化精度：llama.cpp 对非 f16 的 V 缓存强制要求 Flash Attention。
+export type KvCacheType = 'f16' | 'q8_0' | 'q4_0'
 
 export interface LocalSettings {
   // 空串表示使用 <dataDir>/models。
@@ -14,6 +16,8 @@ export interface LocalSettings {
   // GitHub 资产下载前缀；空串为直连。
   githubMirror: string
   defaultContext: number
+  // 加载模型的默认 KV 缓存精度；量化值会同时启用 Flash Attention。
+  kvCache: KvCacheType
 }
 
 export interface GpuInfo {
@@ -62,6 +66,27 @@ export interface InstalledModel {
   repo?: string
   quant?: string
   loaded: boolean
+  // GGUF 头里的 KV 成本摘要；解析失败时缺省，界面按「未知」处理。
+  kvInfo?: ModelKvInfo
+}
+
+// 训练上下文与 KV 占用（f16 口径）。全注意力层按 token 线性增长，滑动窗口层是固定窗口。
+export interface ModelKvInfo {
+  trainedContext: number | null
+  kvBytesPerToken: number | null
+  swaBytes: number | null
+}
+
+// 加载模型时由界面传入的可选覆盖；缺省沿用 local.json。
+export interface LocalLoadOptions {
+  contextSize?: number
+  kvCache?: KvCacheType
+}
+
+// 超过模型训练长度时下发的 YaRN 参数：scale = 目标 / 训练长度。
+export interface RopeScaling {
+  scale: number
+  origContext: number
 }
 
 export type RuntimePhase = 'not-installed' | 'stopped' | 'starting' | 'running' | 'error'

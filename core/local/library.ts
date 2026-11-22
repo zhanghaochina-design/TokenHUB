@@ -1,5 +1,6 @@
 import { readdir, stat } from 'node:fs/promises'
 import { join, posix, relative, resolve } from 'node:path'
+import { readGgufKvInfo } from './gguf'
 import type { InstalledModel } from './types'
 
 // 分片命名遵循 HuggingFace/llama.cpp 约定：<base>-00001-of-00003.gguf。
@@ -160,5 +161,12 @@ export async function scanModels(modelsDir: string): Promise<InstalledModel[]> {
   const root = resolve(modelsDir)
   const files: Array<{ relative: string; size: number }> = []
   await walk(root, root, 0, files)
-  return groupGgufFiles(files)
+  const models = groupGgufFiles(files)
+  // 训练上下文与 KV 成本只能从 GGUF 头读；解析失败不阻断扫描，界面按未知处理。
+  return await Promise.all(
+    models.map(async (model) => {
+      const kvInfo = await readGgufKvInfo(join(root, model.path))
+      return kvInfo ? { ...model, kvInfo } : model
+    })
+  )
 }

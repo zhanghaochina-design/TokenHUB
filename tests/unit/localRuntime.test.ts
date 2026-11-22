@@ -97,6 +97,54 @@ describe('llama args', () => {
       '--jinja'
     ])
   })
+
+  it('quantizes the KV cache and forces flash attention', () => {
+    expect(
+      buildLlamaArgs({ modelPath: 'C:/m.gguf', port: 8788, contextSize: 1_048_576, parallel: 1, kvCache: 'q8_0' })
+    ).toEqual([
+      '-m', 'C:/m.gguf',
+      '--host', '127.0.0.1',
+      '--port', '8788',
+      '-c', '1048576',
+      '-ngl', '99',
+      '-np', '1',
+      '-ctk', 'q8_0',
+      '-ctv', 'q8_0',
+      '-fa', 'on',
+      '--jinja'
+    ])
+  })
+
+  it('adds YaRN scaling only when expanding past the trained context', () => {
+    expect(
+      buildLlamaArgs({
+        modelPath: 'C:/m.gguf',
+        port: 8788,
+        contextSize: 1_048_576,
+        parallel: 1,
+        kvCache: 'q4_0',
+        rope: { scale: 4, origContext: 262144 }
+      })
+    ).toEqual([
+      '-m', 'C:/m.gguf',
+      '--host', '127.0.0.1',
+      '--port', '8788',
+      '-c', '1048576',
+      '-ngl', '99',
+      '-np', '1',
+      '-ctk', 'q4_0',
+      '-ctv', 'q4_0',
+      '-fa', 'on',
+      '--rope-scaling', 'yarn',
+      '--rope-scale', '4',
+      '--yarn-orig-ctx', '262144',
+      '--jinja'
+    ])
+    // f16 与 1.0 倍缩放都不应出现 YaRN 参数。
+    expect(
+      buildLlamaArgs({ modelPath: 'C:/m.gguf', port: 8788, contextSize: 8192, parallel: 1, rope: { scale: 1, origContext: 8192 } })
+    ).not.toContain('--rope-scaling')
+  })
 })
 
 describe('LocalRuntime', () => {

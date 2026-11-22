@@ -1,5 +1,5 @@
 import type { AppState, HistoryRecord, ModelAlias, ModelMeta, Preset, ProtocolScanResult, ProviderConfig, ProviderSpeedStats, ProviderUsageStats, QuotaAdapterId, QuotaSnapshot, Settings } from './types'
-import type { HfModelDetail, HfModelSummary, LocalBackend, LocalSettings, LocalSnapshot } from './local/types'
+import type { HfModelDetail, HfModelSummary, LocalBackend, LocalLoadOptions, LocalSettings, LocalSnapshot } from './local/types'
 
 export interface ProviderInput {
   preset: Preset
@@ -41,7 +41,7 @@ export interface LocalApi {
   removeRuntime(backend: LocalBackend): Promise<LocalSnapshot>
   // 用户在系统对话框里取消时返回 null，不当作错误。
   importRuntimeZip(): Promise<LocalSnapshot | null>
-  loadModel(id: string, contextSize?: number): Promise<LocalSnapshot>
+  loadModel(id: string, options?: LocalLoadOptions): Promise<LocalSnapshot>
   stopModel(): Promise<LocalSnapshot>
   deleteModel(id: string): Promise<LocalSnapshot>
   refreshModels(): Promise<LocalSnapshot>

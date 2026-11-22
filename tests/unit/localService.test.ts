@@ -13,12 +13,15 @@ import {
 } from '../../core/local/service'
 import type {
   DownloadTask,
+  KvCacheType,
   LocalBackend,
   LocalRuntimeStatus,
   LocalSnapshot,
+  RopeScaling,
   RuntimeInstall,
   SystemUsage
 } from '../../core/local/types'
+import { buildGguf, GEMMA_TEST_META } from '../helpers/ggufBuilder'
 
 // 目录读取后的可控延迟：只有竞态用例会把它置为非 0，其余用例保持原样直通。
 const fsGate = vi.hoisted(() => ({ readdirDelayMs: 0 }))
@@ -113,6 +116,8 @@ async function createHarness(options: HarnessOptions = {}) {
     modelId: null as string | null,
     contextLength: null as number | null,
     device: null as string | null,
+    kvCache: null as KvCacheType | null,
+    rope: null as RopeScaling | null,
     hfToken: options.hfToken ?? null,
     // null 表示按 loaded 推导；显式值用于模拟「runtime 还记着 modelId，但进程已经停了」。
     phase: null as LocalRuntimeStatus['phase'] | null
@@ -172,12 +177,14 @@ async function createHarness(options: HarnessOptions = {}) {
           port: state.loaded ? 8788 : null,
           contextLength: state.contextLength
         }),
-      load: async (model, _backend, contextSize, device) => {
+      load: async (model, _backend, contextSize, device, loadOptions) => {
         if (options.loadFails) return
         state.loaded = true
         state.modelId = model.modelId
         state.contextLength = contextSize
         state.device = device ?? null
+        state.kvCache = loadOptions?.kvCache ?? null
+        state.rope = loadOptions?.rope ?? null
       },
       stop: async () => {
         state.loaded = false
@@ -243,11 +250,29 @@ describe('LocalService', () => {
     const { service, state } = await createHarness({ files: ['Qwen3-8B-Q4_K_M.gguf'] })
 
     // 上下文长度由界面直接传进 IPC：越界值不能原样交给 llama-server（过大直接 OOM、过小起不来）。
-    await service.loadModel('Qwen3-8B-Q4_K_M', 999999999)
-    expect(state.contextLength).toBe(262144)
+    await service.loadModel('Qwen3-8B-Q4_K_M', { contextSize: 999999999 })
+    expect(state.contextLength).toBe(1048576)
 
-    await service.loadModel('Qwen3-8B-Q4_K_M', 1)
+    await service.loadModel('Qwen3-8B-Q4_K_M', { contextSize: 1 })
     expect(state.contextLength).toBe(512)
+    await service.shutdown()
+  })
+
+  it('adds YaRN scaling and KV precision when loading past the trained context', async () => {
+    const { service, state, modelsDir } = await createHarness({ files: ['Gemma-4-12B-Q4_0.gguf'] })
+    await writeFile(join(modelsDir, 'Gemma-4-12B-Q4_0.gguf'), buildGguf(GEMMA_TEST_META))
+    await service.refreshModels()
+    expect(service.getSnapshot().models[0].kvInfo?.trainedContext).toBe(262144)
+
+    await service.loadModel('Gemma-4-12B-Q4_0', { contextSize: 1_048_576, kvCache: 'q8_0' })
+    expect(state.contextLength).toBe(1_048_576)
+    expect(state.kvCache).toBe('q8_0')
+    expect(state.rope).toEqual({ scale: 4, origContext: 262144 })
+
+    // 回到训练长度内不再下发 YaRN；非法 KV 精度回退设置默认值（默认 q8_0）。
+    await service.loadModel('Gemma-4-12B-Q4_0', { contextSize: 262144, kvCache: 'q2' as unknown as KvCacheType })
+    expect(state.rope).toBeNull()
+    expect(state.kvCache).toBe('q8_0')
     await service.shutdown()
   })
 
@@ -313,7 +338,7 @@ describe('LocalService', () => {
   it('sends the runtime-reported context and vision=false as sync meta', async () => {
     const { service, synced } = await createHarness({ files: ['Qwen3-8B-Q4_K_M.gguf'] })
 
-    await service.loadModel('Qwen3-8B-Q4_K_M', 4096)
+    await service.loadModel('Qwen3-8B-Q4_K_M', { contextSize: 4096 })
 
     expect(synced.at(-1)).toEqual({
       baseUrl: 'http://127.0.0.1:8788/v1',

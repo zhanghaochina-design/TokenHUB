@@ -10,17 +10,20 @@ import { downloadFile, type FetchFn } from './http'
 import { scanModels, shardPaths } from './library'
 import { LocalRuntime, type ChildHandle, type RuntimeSpawnPorts } from './runtime'
 import { RuntimeInstaller, type InstallerPorts } from './runtimeInstaller'
-import { DEFAULT_LOCAL_SETTINGS, MAX_CONTEXT_TOKENS, MIN_CONTEXT_TOKENS, hfBaseUrl, normalizeLocalSettings } from './settings'
+import { DEFAULT_LOCAL_SETTINGS, MAX_CONTEXT_TOKENS, MIN_CONTEXT_TOKENS, hfBaseUrl, normalizeKvCache, normalizeLocalSettings } from './settings'
 import type {
   BackendPreference,
   DownloadTask,
   HardwareReport,
   HfModelDetail,
   HfModelSummary,
+  KvCacheType,
   LocalBackend,
+  LocalLoadOptions,
   LocalRuntimeStatus,
   LocalSettings,
   LocalSnapshot,
+  RopeScaling,
   RuntimeInstall,
   SystemUsage
 } from './types'
@@ -52,7 +55,8 @@ export interface LocalRuntimePort {
     model: { modelId: string; modelPath: string },
     backend: LocalBackend,
     contextSize: number,
-    device?: string | null
+    device?: string | null,
+    options?: { kvCache?: KvCacheType; rope?: RopeScaling | null }
   ): Promise<void>
   stop(): Promise<void>
   shutdown(): Promise<void>
@@ -109,6 +113,13 @@ function emptyHardware(): HardwareReport {
 function clampContext(value: number | undefined, fallback: number): number {
   if (value === undefined || !Number.isFinite(value)) return fallback
   return Math.min(MAX_CONTEXT_TOKENS, Math.max(MIN_CONTEXT_TOKENS, Math.floor(value)))
+}
+
+// 超过训练长度必须显式启用 YaRN：llama.cpp 只在显式 YaRN 且缩放系数与训练值不同时
+// 才把每槽上下文上限从 n_ctx_train 重算为目标长度，否则 server 会静默截回训练上限。
+function ropeFor(contextSize: number, trainedContext: number | null): RopeScaling | null {
+  if (!trainedContext || contextSize <= trainedContext) return null
+  return { scale: Math.round((contextSize / trainedContext) * 10_000) / 10_000, origContext: trainedContext }
 }
 
 // 启动自检探针：本地端口已被一个「上次没退干净的 llama-server」占用时，新进程会因为绑定失败而
@@ -343,7 +354,7 @@ export class LocalService {
       // 快照会被 IPC 序列化后交给界面：这里先复制，避免调用方就地改到内存里的安装记录。
       install: install ? { ...install, devices: [...install.devices] } : null,
       runtime: this.runtime.getStatus(),
-      models: this.models.map((model) => ({ ...model })),
+      models: this.models.map((model) => ({ ...model, kvInfo: model.kvInfo ? { ...model.kvInfo } : undefined })),
       downloads: this.downloads?.getTasks() ?? [],
       installProgress: this.installProgress ?? null,
       usage: this.usage ? { ...this.usage } : null,
@@ -466,16 +477,19 @@ export class LocalService {
     return this.snapshot()
   }
 
-  async loadModel(id: string, contextSize?: number): Promise<LocalSnapshot> {
+  async loadModel(id: string, options: LocalLoadOptions = {}): Promise<LocalSnapshot> {
     const model = this.models.find((candidate) => candidate.id === id)
     if (!model) throw new Error(`unknown local model: ${id}`)
     const install = this.preferredInstall()
     if (!install) throw new Error('请先安装 llama.cpp 运行时')
+    const contextSize = clampContext(options.contextSize, this.settings.defaultContext)
+    const kvCache = normalizeKvCache(options.kvCache, this.settings.kvCache)
     await this.runtime.load(
       { modelId: model.id, modelPath: join(this.modelsDir, model.path) },
       install.backend,
-      clampContext(contextSize, this.settings.defaultContext),
-      this.resolveDevice(install)
+      contextSize,
+      this.resolveDevice(install),
+      { kvCache, rope: ropeFor(contextSize, model.kvInfo?.trainedContext ?? null) }
     )
     const status = this.runtime.getStatus()
     if (status.phase !== 'running') {

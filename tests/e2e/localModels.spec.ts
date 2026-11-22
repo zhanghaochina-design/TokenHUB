@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 // 端口与其它 e2e 文件（smoke 用 18787）错开：本文件每个用例各占一个，避免串行复用同一监听。
-const PORTS = { page: '18788', providers: '18789', panels: '18790', gpu: '18794', layout: '18795', usage: '18796' }
+const PORTS = { page: '18788', providers: '18789', panels: '18790', gpu: '18794', layout: '18795', usage: '18796', load: '18797' }
 
 type Window = Awaited<ReturnType<ElectronApplication['firstWindow']>>
 
@@ -59,6 +59,13 @@ function seedTwoGpuRuntime(dataDir: string): void {
     ]),
     'utf8'
   )
+}
+
+// 一个占位 GGUF 足以让模型出现在列表；头部解析失败时界面按「训练上下文未知」处理。
+function seedModelFile(dataDir: string): void {
+  mkdirSync(join(dataDir, 'models'), { recursive: true })
+  writeFileSync(join(dataDir, 'models', 'Fake-Q4_0.gguf'), 'gguf', 'utf8')
+  writeFileSync(join(dataDir, 'local.json'), JSON.stringify({ defaultContext: 1048576, kvCache: 'q8_0' }), 'utf8')
 }
 
 async function resize(win: Window, app: ElectronApplication, width: number, height: number): Promise<void> {
@@ -117,6 +124,29 @@ test('shows HF search, download queue and local settings', async () => {
     await expect(win.getByRole('button', { name: '清除 Token' })).toBeDisabled()
     await expect(win.getByText('暂无下载任务。')).toBeVisible()
   })
+})
+
+test('opens the load dialog with context and KV defaults', async () => {
+  await withApp(
+    PORTS.load,
+    async (win) => {
+      await win.getByRole('link', { name: '本地模型' }).click()
+      await card(win, '已安装模型').getByRole('button', { name: '加载', exact: true }).click()
+
+      const dialog = win.getByRole('dialog')
+      await expect(dialog.getByRole('heading', { name: '加载本地模型' })).toBeVisible()
+      // 默认值来自 local.json：上下文 1M、KV q8_0。
+      await expect(dialog.getByLabel('上下文长度（token）')).toHaveValue('1048576')
+      await expect(dialog.getByLabel('KV 缓存精度')).toHaveValue('q8_0')
+      await expect(dialog.getByText(/训练上下文：未知/)).toBeVisible()
+      // 占位文件不是合法 GGUF：KV 预估应降级为未知，而不是报错或显示 0。
+      await expect(dialog.getByText(/KV 缓存预估：未知/)).toBeVisible()
+
+      await dialog.getByRole('button', { name: '取消' }).click()
+      await expect(dialog).toHaveCount(0)
+    },
+    seedModelFile
+  )
 })
 
 test('offers a GPU selector when the runtime reports multiple devices', async () => {
