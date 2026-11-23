@@ -10,7 +10,7 @@
 - `npm run build`：electron-vite 构建到 `out/`
 - `npx playwright test`：Electron E2E（先构建）
 - `npm run dist`：构建并打 NSIS 安装包到 `release/`
-- 发布：`package.json` 的 `version` 必须与推送的 tag 一致（如 `0.1.0` 对应 `v0.1.0`）；推送 tag 触发 `.github/workflows/release.yml`，在 Windows runner 上跑类型检查、测试与打包，并创建 GitHub Release（附 exe、blockmap 与 `SHA256SUMS.txt`）
+- 发布：`package.json` 的 `version` 必须与推送的 tag 一致（如 `0.1.0` 对应 `v0.1.0`），`package-lock.json` 与 `core/appInfo.ts` 的 `APP_VERSION` 同步修改（单测会校验）；推送 tag 触发 `.github/workflows/release.yml`，在 Windows runner 上跑类型检查、测试与打包，并创建 GitHub Release（附 exe、blockmap 与 `SHA256SUMS.txt`）
 - `node docs/readme/build.mjs`：由 `docs/readme/` 的模板与截图生成根目录 `README.html`
 - 首次运行 Electron 需要二进制；网络不通时用 `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/`
 
