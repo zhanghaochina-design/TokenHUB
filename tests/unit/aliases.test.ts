@@ -59,4 +59,21 @@ describe('suggestModelAliases', () => {
       ])
     ).toEqual([])
   })
+
+  it('treats a local alias target as covering the model that is currently loaded', () => {
+    const local = createProviderFromPreset('local', 'local')
+    local.models.cached = ['deepseek-v4.1-flash']
+    const providers = [p('a', ['deepseek-v4.1-flash']), local]
+    expect(
+      suggestModelAliases(providers, [
+        {
+          id: 'deepseek4.1flash',
+          targets: [
+            { providerId: 'a', upstreamModel: 'deepseek-v4.1-flash' },
+            { providerId: 'local', upstreamModel: '' }
+          ]
+        }
+      ])
+    ).toEqual([])
+  })
 })

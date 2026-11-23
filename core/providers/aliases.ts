@@ -14,9 +14,17 @@ export function modelSignature(raw: string): string {
 export function suggestModelAliases(providers: ProviderConfig[], aliases: ModelAlias[]): ModelSuggestion[] {
   const enabled = providers.filter((provider) => provider.enabled)
   const providerOrder = new Map(enabled.map((provider, index) => [provider.id, index]))
+  const providerById = new Map(enabled.map((provider) => [provider.id, provider]))
   const aliasIds = new Set(aliases.map((alias) => alias.id))
+  // 本地目标不保存上游 ID：按当前载入模型计算已映射对，否则换模型后会重复建议同一个本地模型。
   const mapped = new Set(
-    aliases.flatMap((alias) => alias.targets.map((target) => `${target.providerId}\u0000${target.upstreamModel}`))
+    aliases.flatMap((alias) =>
+      alias.targets.map((target) => {
+        const provider = providerById.get(target.providerId)
+        const model = provider?.preset === 'local' ? provider.models.cached[0] ?? '' : target.upstreamModel
+        return `${target.providerId}\u0000${model}`
+      })
+    )
   )
   const owners = new Map<string, Set<string>>()
   for (const provider of enabled) {

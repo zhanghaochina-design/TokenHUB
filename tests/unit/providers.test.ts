@@ -300,6 +300,47 @@ describe('catalog', () => {
     ])
   })
 
+  it('follows the loaded model for alias targets on the local provider', () => {
+    const cloud = p('a', ['cloud-model'])
+    const local = createProviderFromPreset('local', 'local')
+    local.models.cached = ['Qwen3-30B']
+    const aliases = [
+      {
+        id: 'unified',
+        targets: [
+          { providerId: 'a', upstreamModel: 'cloud-model' },
+          { providerId: 'local', upstreamModel: 'stale-model' }
+        ]
+      }
+    ]
+    const localTarget = (providers: ReturnType<typeof createProviderFromPreset>[]) =>
+      buildCatalog(providers, aliases)
+        .find((model) => model.id === 'unified')
+        ?.targets.find((target) => target.providerId === 'local')?.upstreamModel
+
+    expect(localTarget([cloud, local])).toBe('Qwen3-30B')
+    const resolution = resolveCandidates({
+      requestedModel: 'unified',
+      providers: [cloud, local],
+      catalog: buildCatalog([cloud, local], aliases),
+      runtime: new RuntimeStore()
+    })
+    expect(resolution.candidates.map((candidate) => candidate.upstreamModel)).toEqual(['cloud-model', 'Qwen3-30B'])
+
+    // 换载入模型后目录自动跟随，不需要改统一模型里的 ID。
+    local.models.cached = ['Llama-4-70B']
+    expect(localTarget([cloud, local])).toBe('Llama-4-70B')
+
+    // 本地未载入：本地目标退出候选，只剩云端；纯本地统一模型整体不出现。
+    local.models.cached = []
+    const stopped = buildCatalog([cloud, local], aliases).find((model) => model.id === 'unified')!
+    expect(stopped.targets.map((target) => target.providerId)).toEqual(['a'])
+    const localOnly = [{ id: 'local-only', targets: [{ providerId: 'local', upstreamModel: 'stale-model' }] }]
+    const localOnlyCatalog = buildCatalog([cloud, local], localOnly)
+    expect(localOnlyCatalog.some((model) => model.id === 'local-only')).toBe(false)
+    expect(listedCatalog(localOnlyCatalog, [cloud, local]).map((model) => model.id)).toEqual(['cloud-model'])
+  })
+
   it('hides targets from the local listing without affecting routing', () => {
     const provider = p('a', ['m1', 'm2'])
     provider.models.scanHidden = ['m2']

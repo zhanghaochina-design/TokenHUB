@@ -418,11 +418,19 @@ export function ModelsPage({ state, onOpenProviders }: ModelsPageProps) {
                   <div className="mt-1.5 flex flex-wrap gap-1.5 text-xs text-muted">
                     {alias.targets.map((target) => {
                       const provider = providerById.get(target.providerId)
+                      const local = provider?.preset === 'local'
+                      const loadedModel = local ? provider.models.cached[0] : undefined
                       return (
                         <span key={target.providerId} className="inline-flex max-w-full items-center gap-1 rounded border border-line bg-neutral-50 px-1.5 py-0.5">
                           <span className={provider ? '' : 'text-red-700'}>{provider?.name ?? `${target.providerId}（供应商不存在）`}</span>
                           <span aria-hidden="true">→</span>
-                          <span className="break-all font-mono text-ink">{target.upstreamModel}</span>
+                          {local ? (
+                            <span className="text-ink">
+                              跟随载入模型{loadedModel ? <span className="break-all font-mono">：{loadedModel}</span> : '（未载入）'}
+                            </span>
+                          ) : (
+                            <span className="break-all font-mono text-ink">{target.upstreamModel}</span>
+                          )}
                         </span>
                       )
                     })}

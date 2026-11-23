@@ -55,9 +55,11 @@ export function ModelAliasDialog({ providers, aliases, initial, onClose, onSave 
     : []
   const missingTargets = targets.flatMap((target) => {
     const provider = providerById.get(target.providerId)
-    if (!provider || !target.upstreamModel.trim()) return []
+    // 本地目标忽略上游 ID，模型随载入状态变化，不参与“缺失”提醒。
+    if (!provider || provider.preset === 'local' || !target.upstreamModel.trim()) return []
     return uniqueModels(provider).includes(target.upstreamModel.trim()) ? [] : [`${provider.name}: ${target.upstreamModel.trim()}`]
   })
+  const hasLocalTarget = targets.some((target) => providerById.get(target.providerId)?.preset === 'local')
 
   function updateTarget(index: number, patch: Partial<TargetRow>) {
     setTargets((current) => current.map((target, i) => (i === index ? { ...target, ...patch } : target)))
@@ -86,8 +88,18 @@ export function ModelAliasDialog({ providers, aliases, initial, onClose, onSave 
       return
     }
     const cleaned = targets
-      .map((target) => ({ providerId: target.providerId.trim(), upstreamModel: target.upstreamModel.trim() }))
-      .filter((target) => target.providerId && target.upstreamModel)
+      .map((target) => {
+        const providerId = target.providerId.trim()
+        // 本地供应商同一时刻只服务当前载入的模型，上游 ID 一律清空。
+        return {
+          providerId,
+          upstreamModel: providerById.get(providerId)?.preset === 'local' ? '' : target.upstreamModel.trim()
+        }
+      })
+      .filter((target) => {
+        if (!target.providerId) return false
+        return providerById.get(target.providerId)?.preset === 'local' || Boolean(target.upstreamModel)
+      })
     if (cleaned.length === 0) {
       setError('至少需要一个供应商目标。')
       return
@@ -158,7 +170,15 @@ export function ModelAliasDialog({ providers, aliases, initial, onClose, onSave 
                           id={`alias-provider-${index}`}
                           aria-label={`目标供应商 ${index + 1}`}
                           value={target.providerId}
-                          onChange={(event) => updateTarget(index, { providerId: event.target.value })}
+                          onChange={(event) => {
+                            const providerId = event.target.value
+                            const nextProvider = providerById.get(providerId)
+                            // 切到本地时清空 ID：本地目标不保存模型名，避免带着另一家的 ID。
+                            updateTarget(index, {
+                              providerId,
+                              upstreamModel: nextProvider?.preset === 'local' ? '' : target.upstreamModel
+                            })
+                          }}
                           className="h-10 w-full rounded-lg border border-line bg-surface px-2.5 text-sm text-ink focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20"
                         >
                           {providers.map((option) => (
@@ -169,19 +189,27 @@ export function ModelAliasDialog({ providers, aliases, initial, onClose, onSave 
                         </select>
                       </div>
                       <div>
-                        <label htmlFor={`alias-model-${index}`} className="sr-only">上游模型 {index + 1}</label>
-                        <input
-                          id={`alias-model-${index}`}
-                          aria-label={`上游模型 ${index + 1}`}
-                          list={`alias-model-options-${index}`}
-                          value={target.upstreamModel}
-                          onChange={(event) => updateTarget(index, { upstreamModel: event.target.value })}
-                          placeholder={models[0] ?? '输入或选择上游模型 ID'}
-                          className="h-10 w-full rounded-lg border border-line bg-surface px-3 font-mono text-sm text-ink placeholder:font-sans placeholder:text-neutral-500 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20"
-                        />
-                        <datalist id={`alias-model-options-${index}`}>
-                          {models.map((model) => <option key={model} value={model} />)}
-                        </datalist>
+                        {provider?.preset === 'local' ? (
+                          <div className="flex h-10 items-center rounded-lg border border-dashed border-line bg-canvas px-3 text-xs text-muted">
+                            跟随当前载入模型{models[0] ? `：${models[0]}` : '（尚未载入）'}
+                          </div>
+                        ) : (
+                          <>
+                            <label htmlFor={`alias-model-${index}`} className="sr-only">上游模型 {index + 1}</label>
+                            <input
+                              id={`alias-model-${index}`}
+                              aria-label={`上游模型 ${index + 1}`}
+                              list={`alias-model-options-${index}`}
+                              value={target.upstreamModel}
+                              onChange={(event) => updateTarget(index, { upstreamModel: event.target.value })}
+                              placeholder={models[0] ?? '输入或选择上游模型 ID'}
+                              className="h-10 w-full rounded-lg border border-line bg-surface px-3 font-mono text-sm text-ink placeholder:font-sans placeholder:text-neutral-500 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20"
+                            />
+                            <datalist id={`alias-model-options-${index}`}>
+                              {models.map((model) => <option key={model} value={model} />)}
+                            </datalist>
+                          </>
+                        )}
                       </div>
                       <button
                         type="button"
@@ -200,6 +228,9 @@ export function ModelAliasDialog({ providers, aliases, initial, onClose, onSave 
                 <p className="mt-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800">
                   统一 ID 与以下原始模型同名：{sameNameModels.join('；')}。显式映射优先，其余同名供应商会自动纳入。
                 </p>
+              )}
+              {hasLocalTarget && (
+                <p className="mt-2 text-xs text-muted">本地目标不保存模型 ID，始终转发到当前载入的本地模型；更换模型后无需修改。</p>
               )}
               {missingTargets.length > 0 && (
                 <p className="mt-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800">

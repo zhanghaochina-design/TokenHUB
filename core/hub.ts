@@ -465,13 +465,16 @@ export class Hub {
     if (this.config.modelAliases.some((candidate) => candidate.id === id && candidate.id !== previous)) {
       throw new Error(`model alias already exists: ${id}`)
     }
-    const providerIds = new Set(this.config.providers.map((provider) => provider.id))
+    const providerById = new Map(this.config.providers.map((provider) => [provider.id, provider]))
     const targets = new Map<string, string>()
     for (const target of alias.targets) {
       const providerId = target.providerId.trim()
-      const upstreamModel = target.upstreamModel.trim()
-      if (!providerId || !upstreamModel) continue
-      if (!providerIds.has(providerId)) throw new Error(`unknown provider for model alias: ${providerId}`)
+      if (!providerId) continue
+      const provider = providerById.get(providerId)
+      if (!provider) throw new Error(`unknown provider for model alias: ${providerId}`)
+      // 本地供应商同一时刻只服务当前载入的模型，上游 ID 没有意义：统一存空串，路由时跟随加载结果。
+      const upstreamModel = provider.preset === 'local' ? '' : target.upstreamModel.trim()
+      if (!upstreamModel && provider.preset !== 'local') continue
       targets.set(providerId, upstreamModel)
     }
     if (targets.size === 0) throw new Error('model alias needs at least one provider target')

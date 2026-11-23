@@ -409,6 +409,39 @@ describe('Hub', () => {
     await hub.shutdown()
   })
 
+  it('keeps local alias targets id-free and follows whatever model is loaded', async () => {
+    const { hub } = await boot()
+    await hub.addProvider({ preset: 'custom', name: 'Cloud', baseUrl: 'https://a.example/v1', apiKey: 'k' })
+    const cloudId = hub.getState().providers[0].id
+    await hub.syncLocalProvider({ baseUrl: 'http://127.0.0.1:8788/v1', models: ['Qwen3-30B'] })
+    await hub.saveModelAlias({
+      id: 'unified',
+      targets: [
+        { providerId: cloudId, upstreamModel: 'm1' },
+        { providerId: 'local', upstreamModel: 'Qwen3-30B' }
+      ]
+    })
+    expect(hub.getState().aliases[0].targets).toEqual([
+      { providerId: cloudId, upstreamModel: 'm1' },
+      { providerId: 'local', upstreamModel: '' }
+    ])
+    const localTarget = () =>
+      hub.getState().catalog
+        .find((model) => model.id === 'unified')
+        ?.targets.find((target) => target.providerId === 'local')?.upstreamModel
+    expect(localTarget()).toBe('Qwen3-30B')
+
+    await hub.syncLocalProvider({ baseUrl: 'http://127.0.0.1:8788/v1', models: ['Llama-4-70B'] })
+    expect(localTarget()).toBe('Llama-4-70B')
+
+    await hub.syncLocalProvider({ baseUrl: 'http://127.0.0.1:8788/v1', models: [] })
+    expect(localTarget()).toBeUndefined()
+    expect(hub.getState().catalog.find((model) => model.id === 'unified')?.targets.map((target) => target.providerId)).toEqual([
+      cloudId
+    ])
+    await hub.shutdown()
+  })
+
   it('marks providers exhausted from quota errors', async () => {
     const { hub } = await boot()
     await hub.addProvider({ preset: 'commandcode', name: 'Goat', baseUrl: 'https://api.commandcode.ai/provider/v1', apiKey: 'k' })

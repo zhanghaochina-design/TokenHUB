@@ -26,6 +26,13 @@ export function listedCatalog(catalog: MergedModel[], providers: ProviderConfig[
   )
 }
 
+// 本地供应商同一时刻只服务当前载入的模型：别名忽略配置里的上游 ID，始终跟随加载结果；
+// 未载入时返回 null，让该目标退出候选（纯本地统一模型随之从列表消失）。
+function aliasTargetModel(provider: ProviderConfig, upstreamModel: string): string | null {
+  if (provider.preset === 'local') return provider.models.cached[0] ?? null
+  return upstreamModel || null
+}
+
 export function buildCatalog(providers: ProviderConfig[], aliases: ModelAlias[] = []): MergedModel[] {
   const enabled = providers.filter((provider) => provider.enabled)
   const providerOrder = new Map(enabled.map((provider, index) => [provider.id, index]))
@@ -48,8 +55,12 @@ export function buildCatalog(providers: ProviderConfig[], aliases: ModelAlias[] 
 
   for (const alias of aliasById.values()) {
     for (const target of alias.targets) {
-      addTarget(alias.id, target.providerId, target.upstreamModel, 'alias')
-      if (providerOrder.has(target.providerId)) hidden.add(pairKey(target.providerId, target.upstreamModel))
+      const provider = providerById.get(target.providerId)
+      if (!provider) continue
+      const upstreamModel = aliasTargetModel(provider, target.upstreamModel)
+      if (!upstreamModel) continue
+      addTarget(alias.id, target.providerId, upstreamModel, 'alias')
+      hidden.add(pairKey(target.providerId, upstreamModel))
     }
   }
 

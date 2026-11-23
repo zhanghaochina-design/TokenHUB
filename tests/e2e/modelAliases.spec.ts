@@ -1,5 +1,5 @@
 import { expect, test, _electron as electron, type ElectronApplication } from '@playwright/test'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -62,6 +62,41 @@ async function modelIds(): Promise<string[]> {
     return []
   }
 }
+
+test('keeps local targets id-free so a later load does not need alias edits', async () => {
+  const dataDir = mkdtempSync(join(tmpdir(), 'tokenhub-e2e-aliases-local-'))
+  seedConfig(dataDir)
+  let app: ElectronApplication | undefined
+  try {
+    app = await electron.launch({ args: ['.'], env: launchEnv(dataDir) })
+    const win = await app.firstWindow()
+    await win.getByRole('link', { name: '模型', exact: true }).click()
+
+    await win.getByRole('button', { name: '添加统一模型' }).click()
+    const dialog = win.getByRole('dialog')
+    await dialog.getByLabel('统一模型 ID').fill('local-unified')
+    await dialog.getByLabel('上游模型 1').fill('deepseek-v4.1-flash')
+    await dialog.getByRole('button', { name: '添加目标' }).click()
+    await dialog.getByLabel('目标供应商 2').selectOption({ label: '本地模型' })
+    await expect(dialog.getByText('跟随当前载入模型（尚未载入）')).toBeVisible()
+    await dialog.getByRole('button', { name: '保存统一模型' }).click()
+
+    const aliasList = win.getByRole('list', { name: '统一模型列表', exact: true })
+    await expect(aliasList.getByText('local-unified', { exact: true })).toBeVisible()
+    await expect(aliasList.getByText('跟随载入模型（未载入）')).toBeVisible()
+
+    const saved = JSON.parse(readFileSync(join(dataDir, 'config.json'), 'utf8')) as {
+      modelAliases: Array<{ id: string; targets: Array<{ providerId: string; upstreamModel: string }> }>
+    }
+    expect(saved.modelAliases.find((alias) => alias.id === 'local-unified')?.targets).toContainEqual({
+      providerId: 'local',
+      upstreamModel: ''
+    })
+  } finally {
+    await app?.close()
+    rmSync(dataDir, { recursive: true, force: true })
+  }
+})
 
 test('creates a canonical model from the suggestion and hides raw ids', async () => {
   const dataDir = mkdtempSync(join(tmpdir(), 'tokenhub-e2e-aliases-'))
