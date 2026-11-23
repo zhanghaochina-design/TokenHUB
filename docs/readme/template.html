@@ -377,12 +377,13 @@
       <a href="#how">工作原理</a>
       <a href="#features">功能</a>
       <a href="#overview">界面</a>
+      <a href="#local">本地模型</a>
       <a href="#routing">路由规则</a>
       <a href="#start">快速上手</a>
       <a href="#security">安全</a>
       <a href="#faq">FAQ</a>
     </nav>
-    <span class="version">v0.1.4</span>
+    <span class="version">v0.3.0</span>
   </div>
 </header>
 
@@ -394,9 +395,9 @@
       <span class="eyebrow-pill"><i aria-hidden="true"></i>Local-first · OpenAI + Anthropic</span>
       <h1 id="hero-title">把多个大模型供应商，<span class="hero-break" aria-hidden="true"></span>变成一个<span class="accent">本地端点</span></h1>
       <p class="lead">
-        TokenHUB 是运行在 Windows 桌面的本地 API 网关。它把 OpenCode Go、DeepSeek、CommandCode
-        与任意兼容服务合并到一个地址，按优先级路由、额度耗尽自动切换，并让 Claude Code
-        与 OpenAI 客户端共用同一套模型目录。
+        TokenHUB 是运行在 Windows 桌面的本地 API 网关。它把 OpenCode Go、DeepSeek、CommandCode、
+        本地 llama.cpp 模型与任意兼容服务合并到一个地址，按优先级路由、额度耗尽自动切换，
+        并让 Claude Code 与 OpenAI 客户端共用同一套模型目录。
       </p>
       <div class="hero-actions">
         <a class="btn btn-primary" href="#start">快速开始</a>
@@ -422,8 +423,8 @@
 
       <div class="stats" aria-label="TokenHUB 关键指标">
         <div class="stat"><strong>2</strong><span>协议入口：OpenAI / Anthropic</span></div>
-        <div class="stat"><strong>3</strong><span>内置供应商预设</span></div>
-        <div class="stat"><strong>5min</strong><span>默认额度探测间隔</span></div>
+        <div class="stat"><strong>4</strong><span>供应商预设（含本地）</span></div>
+        <div class="stat"><strong>1M</strong><span>本地上下文上限</span></div>
         <div class="stat"><strong>100%</strong><span>密钥保存在本机</span></div>
       </div>
     </div>
@@ -641,6 +642,16 @@
           <h3>托盘常驻</h3>
           <p>关闭窗口继续服务；托盘图标绿 / 黄 / 红表示健康度，菜单可暂停路由、复制地址或退出。</p>
         </div>
+        <div class="feature">
+          <span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="7" width="10" height="10" rx="1.5"></rect><path d="M10 2v3M14 2v3M10 19v3M14 19v3M2 10h3M2 14h3M19 10h3M19 14h3"></path></svg></span>
+          <h3>本地大模型</h3>
+          <p>内置 llama.cpp 运行时与 local 供应商：无需 API Key，推理与提示词留在本机，可作为云端额度的后备。</p>
+        </div>
+        <div class="feature">
+          <span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h10M4 18h7"></path><circle cx="18" cy="17" r="3"></circle></svg></span>
+          <h3>能力元数据</h3>
+          <p>按供应商与上游模型标注上下文、视觉与思考参数；统一模型取最小上下文、任一视觉、同名思考参数的交集。</p>
+        </div>
       </div>
     </div>
   </section>
@@ -721,7 +732,7 @@
 
       <div class="callout">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 8h.01M11 12h1v4h1"></path></svg>
-        <div><strong>0.1.4 新增「用量」页与浅色仪表：</strong>按供应商汇总 5 小时 / 周 / 月累计 token，并标注历史覆盖不足的周期；额度卡速度仪表同步改为浅色，与蓝色主色调一致。</div>
+        <div><strong>新增「用量」页与浅色仪表：</strong>按供应商汇总 5 小时 / 周 / 月累计 token，并标注历史覆盖不足的周期；额度卡速度仪表同步改为浅色，与蓝色主色调一致。</div>
       </div>
     </div>
   </section>
@@ -737,7 +748,7 @@
       <div class="mini-grid">
         <div class="mini">
           <h3>预设即用</h3>
-          <p>OpenCode Go、CommandCode Goat、DeepSeek 三个预设会自动填好 Base URL 与额度适配器。</p>
+          <p>OpenCode Go、CommandCode Goat、DeepSeek 三个云端预设会自动填好 Base URL 与额度适配器；本地供应商由应用按运行状态维护，只需启停与排序。</p>
         </div>
         <div class="mini">
           <h3>Key 加密保存</h3>
@@ -846,10 +857,55 @@
     </div>
   </section>
 
+  <section class="block" id="local" aria-labelledby="local-title">
+    <div class="wrap">
+      <div class="section-head">
+        <p class="eyebrow">05 · 本地模型</p>
+        <h2 id="local-title">断网也能用：内置 llama.cpp 本地模型</h2>
+        <p class="lead">TokenHUB 内置 local 供应商：在本机运行 llama.cpp 推理，不需要 API Key，提示词与回复不离开这台机器。它和云端供应商排在同一条优先级队列里，额度耗尽或断网时可以作为最后一道兜底。</p>
+      </div>
+
+      <div class="mini-grid">
+        <div class="mini">
+          <h3>运行时与硬件</h3>
+          <p>按显卡推荐 Vulkan、CUDA 12.4 或 ROCm 后端，从 GitHub Releases 安装 llama.cpp；支持导入 ZIP、多显卡选择与卸载回收磁盘。</p>
+        </div>
+        <div class="mini">
+          <h3>模型下载与扫描</h3>
+          <p>浏览 Hugging Face 及镜像直接下载 GGUF，支持断点续传与分片模型；已下载或手动放入模型目录的 GGUF 都能重新扫描加载。</p>
+        </div>
+        <div class="mini">
+          <h3>上下文与显存</h3>
+          <p>上下文上限 1M，KV 缓存默认 q8_0；请求超过训练长度时自动启用 YaRN 外推，加载前按权重、KV 与显存估算并给出警告。</p>
+        </div>
+      </div>
+
+      <div class="mini-grid">
+        <div class="mini">
+          <h3>本地别名跟随模型</h3>
+          <p>统一模型指向本地供应商时忽略上游 ID，始终转发到当前载入的模型；换模型后不需要改别名。</p>
+        </div>
+        <div class="mini">
+          <h3>只暴露已载入模型</h3>
+          <p>只有当前载入的模型进入目录；停止、崩溃或卸载后立即清空，本地供应商随即退出候选，不会把请求发给已经停掉的进程。</p>
+        </div>
+        <div class="mini">
+          <h3>资源占用一眼可见</h3>
+          <p>概览页本地卡实时显示系统内存、显存与 GPU 使用率；多显卡可指定推理设备，下次加载模型时生效。</p>
+        </div>
+      </div>
+
+      <div class="callout">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 8h.01M11 12h1v4h1"></path></svg>
+        <div><strong>1M 上下文是外推：</strong>KV 缓存默认 q8_0（可选 f16 / q4_0），量化 KV 必须开启 Flash Attention。超出模型训练长度的部分依赖 YaRN 外推，长文精度与 prefill 速度都会明显下降；显存不足时先在加载对话框降低上下文。</div>
+      </div>
+    </div>
+  </section>
+
   <section class="block" id="settings" aria-labelledby="settings-title">
     <div class="wrap">
       <div class="section-head">
-        <p class="eyebrow">05 · 设置</p>
+        <p class="eyebrow">06 · 设置</p>
         <h2 id="settings-title">端口、访问保护、更新与托盘行为</h2>
         <p class="lead">设置页决定服务怎么被访问、怎么随系统启动、怎么更新，以及历史与额度探针的节奏。</p>
       </div>
@@ -1167,6 +1223,14 @@ ANTHROPIC_MODEL=claude-sonnet-4-5</code></pre>
           <p>先点「刷新全部」。有些服务不提供 /models 接口，这时编辑供应商并手动填写模型 ID。请求一个本地目录里没有的模型也会触发一次目录刷新，但 60 秒内最多一次。</p>
         </details>
         <details>
+          <summary>本地模型需要联网吗？</summary>
+          <p>首次安装 llama.cpp 运行时要访问 GitHub Releases，下载 GGUF 要访问 Hugging Face（或你配置的镜像）；模型载入后推理完全在本机，断网也能用。本地供应商不需要 API Key，但只有当前载入的模型会出现在 /v1/models 里。</p>
+        </details>
+        <details>
+          <summary>本地模型加载失败或显存不够？</summary>
+          <p>加载对话框会按权重、KV 缓存与总显存估算并在超限时警告。可以先降低上下文长度或把 KV 改成 q4_0，再检查是否选错了 GPU 后端；模型目录可用空间不足 2 GB 时无法开始下载。</p>
+        </details>
+        <details>
           <summary>为什么有的供应商没有额度条？</summary>
           <p>OpenCode Go 显示三窗口，CommandCode Goat 显示套餐用量，DeepSeek 显示余额。CommandCode 的接口未公开：403 或响应无法识别会按探针失败处理，401 才视为 Key 无效；未配置额度适配器的自定义供应商按 429 / 402 错误码冷却。</p>
         </details>
@@ -1214,7 +1278,8 @@ ANTHROPIC_MODEL=claude-sonnet-4-5</code></pre>
         <div class="limit"><span aria-hidden="true">•</span><div><b>只覆盖 Chat 与 Messages。</b>不代理 Embeddings、Rerank、Realtime、Batch 等端点。</div></div>
         <div class="limit"><span aria-hidden="true">•</span><div><b>单机单用户。</b>没有团队配额、审计日志或多租户隔离。</div></div>
         <div class="limit"><span aria-hidden="true">•</span><div><b>协议能力依赖扫描。</b>未扫描的组合按预设默认处理，必要时需手动验证。</div></div>
-        <div class="limit"><span aria-hidden="true">•</span><div><b>0.1.4 版本。</b>配置结构与界面仍可能调整；当前只发布 Windows 安装包。</div></div>
+        <div class="limit"><span aria-hidden="true">•</span><div><b>0.3.0 版本。</b>配置结构与界面仍可能调整；当前只发布 Windows 安装包。</div></div>
+        <div class="limit"><span aria-hidden="true">•</span><div><b>本地模型受硬件限制。</b>1M 上下文是超出训练长度的外推；模型越大、上下文越长，prefill 与生成越慢，显存不足时无法加载。</div></div>
         <div class="limit"><span aria-hidden="true">•</span><div><b>不做内容处理。</b>不缓存、不改写、不审核提示词与回复。</div></div>
       </div>
     </div>
@@ -1236,7 +1301,7 @@ ANTHROPIC_MODEL=claude-sonnet-4-5</code></pre>
       TokenHUB
     </div>
     <div class="footer-meta">
-      v0.1.4 · 文档更新于 2026-11-12 · 截图来自演示数据（演示端口 18799）<br>
+      v0.3.0 · 文档更新于 2026-11-23 · 截图来自演示数据（演示端口 18799）<br>
       本地优先 · 仅监听 127.0.0.1 · Key 由 Windows DPAPI 加密保存
     </div>
   </div>
