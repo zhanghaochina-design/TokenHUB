@@ -53,6 +53,7 @@
 - 未知模型（本地目录没有）与上游 404 共用同一个 60s 限流、在途合并的模型发现刷新。
 - `build.files` 只打包 `out/main`、`out/preload`、`out/renderer` 与 `package.json`；E2E 截图写在 `out/*.png`，故意不进安装包。
 - 安装包与 exe 图标来自 `build/icon.ico`，`build/icon.png` 是源图；改图标后必须本地 `npm run dist` 并确认无签名警告以外的打包错误。
+- 覆盖安装/卸载前由 NSIS `build/installer.nsh` 的 `customInit`/`customUnInstall` 强制结束 `TokenHUB.exe`：主窗口关闭只隐藏到托盘，安装器默认的关闭请求无法结束旧实例，会提示「TokenHUB 无法关闭」并以退出码 2 中止。改这段宏后必须本地重打包，并用「先启动已安装版本再静默安装」验证安装器能成功结束旧进程。
 - 更新只允许手动触发；开发/E2E 不构造 electron-updater、不请求网络。发布资产必须包含 `latest.yml`，安装包名为 `TokenHUB-Setup-${version}.${ext}`（无空格），否则更新器与 GitHub 资产名对不上。
 - 未得到用户明确要求，不执行 `git add` / `git commit` / `git push`。
 - 打包后若 `release/win-unpacked*` 被外部句柄锁定，需在句柄释放/重启后清理再重跑 `npm run dist`；可用干净的 `--config.directories.output=<临时目录>` 生成安装包后回填。若换目录仍在移动 `default_app.asar` 时 `EBUSY`，用本地解压运行时绕过解压步骤：`electron-builder --win nsis --config.directories.output=<临时目录> --config.electronDist=node_modules/electron/dist`。
